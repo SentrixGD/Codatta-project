@@ -1,3 +1,4 @@
+import math
 from typing import Tuple
 
 import torch
@@ -12,7 +13,6 @@ class MultiHeadAttention(nn.Module):
         dim: int,
         dropout: float,
         window_size: int,
-        device: str = "cuda",
     ) -> None:
 
         super().__init__()
@@ -26,22 +26,24 @@ class MultiHeadAttention(nn.Module):
         coords = (
             torch.stack(
                 torch.meshgrid(
-                    torch.arange(window_size, device=device),
-                    torch.arange(window_size, device=device),
+                    torch.arange(window_size),
+                    torch.arange(window_size),
                     indexing="ij",
                 )
             )
             .reshape(2, -1)
             .T
-        )  # (L, 2)
+        )
+
+        coords = coords.to(torch.long)
+
         rel = coords[:, None, :] - coords[None, :, :]
-        dx = rel[..., 0]
-        dy = rel[..., 1]
+        dx = rel[..., 0].contiguous()
+        dy = rel[..., 1].contiguous()
 
         self.register_buffer("dx", dx)
         self.register_buffer("dy", dy)
         self.register_buffer("coords", coords)
-        self.device = device
         self.proj_q = nn.Linear(dim, dim)
         self.proj_k = nn.Linear(dim, dim)
         self.proj_v = nn.Linear(dim, dim)
@@ -65,7 +67,7 @@ class MultiHeadAttention(nn.Module):
         dtype = q.dtype
 
         # heads (NOT windows)
-        slopes = torch.logspace(0, -1, self.heads, device=self.device)
+        slopes = torch.logspace(0, -1, self.heads).cuda()
 
         mask = attn_mask.reshape(B * W, L, L).bool()
         mask_heads = mask[:, None, :, :]
@@ -73,17 +75,12 @@ class MultiHeadAttention(nn.Module):
         bias = bias.unsqueeze(0).expand(B * W, -1, -1, -1)  # (B*W, heads, L, L)
 
         attn_mask_float = torch.zeros_like(mask_heads, dtype=dtype)
-        attn_mask_float = attn_mask_float.masked_fill(~mask_heads, float("-inf"))
-        print(attn_mask_float.shape, bias.shape)
-
+        attn_mask_float = attn_mask_float.masked_fill(~mask_heads, float("-inf")).cuda()
         attn_bias = attn_mask_float + bias.to(dtype)
-
-        print(attn_bias)
 
         q = q.view(B * W, L, self.heads, self.head_dim).permute(0, 2, 1, 3)
         v = v.view(B * W, L, self.heads, self.head_dim).permute(0, 2, 1, 3)
         k = k.view(B * W, L, self.heads, self.head_dim).permute(0, 2, 1, 3)
-        print(q.shape)
 
         attn = F.scaled_dot_product_attention(
             q,
@@ -113,20 +110,44 @@ class Merge(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, dim: int) -> None:
+    def __init__(self, dim: int, dropout: float) -> None:
         super().__init__()
         self.mlp = nn.Sequential(
             nn.Linear(dim, dim * 4),
             nn.GELU(),
+            nn.Dropout(dropout),
             nn.Linear(dim * 4, dim),
+            nn.Dropout(dropout),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.mlp(x)
 
 
+class DropPath(nn.Module):
+    def __init__(self, p: float) -> None:
+        super().__init__()
+        self.p = p
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.training or self.p == 0.0:
+            return x
+
+        keep_prob = 1 - self.p
+
+        # one mask per sample
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        mask = torch.rand(shape, device=x.device) < keep_prob
+
+        return x * mask / keep_prob
+
+
 def windowing(
-    x: torch.Tensor, window_size: int, shift_size: int
+    x: torch.Tensor,
+    window_size: int,
+    shift_size: int,
+    height_padding: int,
+    width_padding: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Turns a tensor of shape (batch_size, channels, height, width) into a tensor of shape (batch_size, num_windows, window_size * window_size, channels) for MHA and creates a window boolean mask composed of shift mask and validity mask
@@ -138,19 +159,15 @@ def windowing(
     returns:
         Tuple[torch.Tensor, torch.Tensor]: tuple of the windowed tensor and the window mask
     """
-    B, C, H, W = x.shape
-    height_padding = (window_size - H % window_size) % window_size
-    width_padding = (window_size - W % window_size) % window_size
-    padded = F.pad(
-        x, pad=(0, width_padding, 0, height_padding), mode="constant", value=0
-    )
-    H_pad = H + height_padding
-    W_pad = W + width_padding
-    mask = torch.zeros(B, H_pad, W_pad, dtype=torch.bool)
+    B, C, H_pad, W_pad = x.shape
+    device = x.device
+    H = H_pad - height_padding
+    W = W_pad - width_padding
+    mask = torch.zeros(B, H_pad, W_pad, dtype=torch.bool, device=device)
     mask[:, :H, :W] = True
 
     # create window mask
-    window_mask = torch.zeros(B, H_pad, W_pad, dtype=torch.int8)
+    window_mask = torch.zeros(B, H_pad, W_pad, dtype=torch.int8, device=device)
     window_mask[:, :, W_pad - shift_size :] = 1
     window_mask[:, H_pad - shift_size :, :] = 2
     window_mask[:, H_pad - shift_size :, W_pad - shift_size :] = 3
@@ -166,9 +183,9 @@ def windowing(
     windows = window_mask.reshape(B, -1, window_size * window_size)
     attn_mask = windows[:, :, None, :] == windows[:, :, :, None]
 
-    padded = padded.roll(shifts=(shift_size, shift_size), dims=(2, 3))
+    x = x.roll(shifts=(shift_size, shift_size), dims=(2, 3))
     mask = mask.roll(shifts=(shift_size, shift_size), dims=(1, 2))
-    padded = padded.view(
+    x = x.view(
         B,
         C,
         H_pad // window_size,
@@ -177,9 +194,9 @@ def windowing(
         window_size,
     )
 
-    padded = padded.permute(0, 2, 4, 1, 3, 5)  # (B, nH, nW, C, ws, ws)
+    x = x.permute(0, 2, 4, 1, 3, 5)  # (B, nH, nW, C, ws, ws)
 
-    padded = padded.reshape(
+    x = x.reshape(
         B,
         (H_pad // window_size) * (W_pad // window_size),
         C,
@@ -206,11 +223,12 @@ def windowing(
         B, (H_pad // window_size) * (W_pad // window_size) * window_size * window_size
     )
     valid_windows = valid.view(B, -1, window_size * window_size)
+    print(valid_windows[0, 0, :])
     valid_mask = valid_windows[:, :, :, None] & valid_windows[:, :, None, :]
     final_mask = attn_mask & valid_mask
-    padded = padded.permute(0, 1, 3, 4, 2).contiguous()
-    padded = padded.view(B, -1, window_size * window_size, C)
-    return padded, final_mask
+    x = x.permute(0, 1, 3, 4, 2).contiguous()
+    x = x.view(B, -1, window_size * window_size, C)
+    return x, final_mask
 
 
 def unwindowing(
@@ -244,12 +262,62 @@ def unwindowing(
     return x
 
 
-# k, mask = windowing(torch.randn(1, 48, 167, 167), 7, 3)
-k, mask = windowing(torch.randn(1, 48, 167, 167, dtype=torch.float), 7, 3)
-MHA = MultiHeadAttention(6, 48, 0.0, 7, "cpu")
-k = MHA(k, k, mask)
-b = unwindowing(k, 3, 168, 168)
-b = b.permute(0, 2, 3, 1).contiguous()
-print(b.shape)
-merge = Merge(48)
-# c = merge.forward(b)
+class SwinBlock(nn.Module):
+    def __init__(
+        self,
+        heads: int,
+        dim: int,
+        dropout_mha: float,
+        dropout_mlp: float,
+        dropout_outer: float,
+        droppath: float,
+        window_size: int,
+    ):
+        super().__init__()
+        self.heads = heads
+        self.dim = dim
+        self.dropout_mha = dropout_mha
+        self.dropout_mlp = dropout_mlp
+        self.window_size = window_size
+
+        self.ln1 = nn.LayerNorm(dim)
+        self.ln2 = nn.LayerNorm(dim)
+        self.dropout = nn.Dropout(dropout_outer)
+        self.MHA = MultiHeadAttention(heads, dim, dropout_mha, window_size)
+        self.MLP = MLP(dim, dropout_mlp)
+        self.merge = Merge(dim)
+        self.droppath = DropPath(droppath)
+
+    def forward(self, x: torch.Tensor, shift_size: int, merge: bool) -> torch.Tensor:
+        B, C, H, W = x.shape
+        print(x.shape)
+
+        pad_h = (self.window_size - H % self.window_size) % self.window_size
+        pad_w = (self.window_size - W % self.window_size) % self.window_size
+        H = H + pad_h
+        W = W + pad_w
+        x = F.pad(x, pad=(0, pad_w, 0, pad_h), mode="constant", value=0)
+        attn = x.permute(0, 2, 3, 1).contiguous()
+        attn = self.ln1(attn)
+        attn = attn.permute(0, 3, 1, 2).contiguous()
+        attn, mask = windowing(attn, self.window_size, shift_size, pad_h, pad_w)
+        attn = self.MHA(attn, attn, mask)
+        attn = unwindowing(attn, shift_size, H, W)
+        attn = self.dropout(attn)
+        x = x + self.droppath(attn)
+        mlp = x.permute(0, 2, 3, 1).contiguous()
+        mlp = mlp.view(B, H * W, C)
+        mlp = self.ln2(mlp)
+        mlp = self.MLP.forward(mlp)
+        mlp = mlp.view(B, H, W, C)
+        mlp = mlp.permute(0, 3, 1, 2).contiguous()
+        return x + self.droppath(mlp)
+
+
+device = torch.device("cuda")
+
+model = SwinBlock(6, 48, 0, 0, 0, 0.1, 7).to(device)
+x = torch.randn(1, 48, 167, 180, device=device)
+
+shift_size = math.ceil(7 / 2)
+print(model(x, shift_size, True))
