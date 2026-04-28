@@ -1,5 +1,5 @@
 import math
-from typing import Tuple
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -67,7 +67,7 @@ class MultiHeadAttention(nn.Module):
         dtype = q.dtype
 
         # heads (NOT windows)
-        slopes = torch.logspace(0, -1, self.heads).cuda()
+        slopes = torch.logspace(0, -1, self.heads, device=q.device)
 
         mask = attn_mask.reshape(B * W, L, L).bool()
         mask_heads = mask[:, None, :, :]
@@ -110,13 +110,13 @@ class Merge(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, dim: int, dropout: float) -> None:
+    def __init__(self, dim: int, dropout: float, hidden_extension: int) -> None:
         super().__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(dim, dim * 4),
+            nn.Linear(dim, dim * hidden_extension),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(dim * 4, dim),
+            nn.Linear(dim * hidden_extension, dim),
             nn.Dropout(dropout),
         )
 
@@ -140,6 +140,15 @@ class DropPath(nn.Module):
         mask = torch.rand(shape, device=x.device) < keep_prob
 
         return x * mask / keep_prob
+
+
+class Patching(nn.Module):
+    def __init__(self, in_ch: int, embed_dim: int) -> None:
+        super().__init__()
+        self.proj = nn.Conv2d(in_ch, embed_dim, kernel_size=4, stride=4)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.proj(x)
 
 
 def windowing(
@@ -223,7 +232,6 @@ def windowing(
         B, (H_pad // window_size) * (W_pad // window_size) * window_size * window_size
     )
     valid_windows = valid.view(B, -1, window_size * window_size)
-    print(valid_windows[0, 0, :])
     valid_mask = valid_windows[:, :, :, None] & valid_windows[:, :, None, :]
     final_mask = attn_mask & valid_mask
     x = x.permute(0, 1, 3, 4, 2).contiguous()
@@ -284,13 +292,11 @@ class SwinBlock(nn.Module):
         self.ln2 = nn.LayerNorm(dim)
         self.dropout = nn.Dropout(dropout_outer)
         self.MHA = MultiHeadAttention(heads, dim, dropout_mha, window_size)
-        self.MLP = MLP(dim, dropout_mlp)
-        self.merge = Merge(dim)
+        self.MLP = MLP(dim, dropout_mlp, 4)
         self.droppath = DropPath(droppath)
 
-    def forward(self, x: torch.Tensor, shift_size: int, merge: bool) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, shift_size: int) -> torch.Tensor:
         B, C, H, W = x.shape
-        print(x.shape)
 
         pad_h = (self.window_size - H % self.window_size) % self.window_size
         pad_w = (self.window_size - W % self.window_size) % self.window_size
@@ -308,16 +314,102 @@ class SwinBlock(nn.Module):
         mlp = x.permute(0, 2, 3, 1).contiguous()
         mlp = mlp.view(B, H * W, C)
         mlp = self.ln2(mlp)
-        mlp = self.MLP.forward(mlp)
+        mlp = self.MLP(mlp)
         mlp = mlp.view(B, H, W, C)
         mlp = mlp.permute(0, 3, 1, 2).contiguous()
         return x + self.droppath(mlp)
 
 
+class SwinModel(nn.Module):
+    def __init__(
+        self,
+        heads_ratio: int,
+        dim: int,
+        dropout_mha: float,
+        dropout_mlp: float,
+        dropout_outer: float,
+        droppath: float,
+        window_size: int,
+        input_channels: int,
+        depths: List[int],
+        stage_num: int,
+    ):
+        super().__init__()
+
+        self.heads_ratio = heads_ratio
+        self.dim = dim
+        self.dropout_mha = dropout_mha
+        self.dropout_mlp = dropout_mlp
+        self.dropout_outer = dropout_outer
+        self.droppath = droppath
+        self.window_size = window_size
+        self.input_channels = input_channels
+        self.depths = depths
+        self.stage_num = stage_num
+
+        self.patch_embed = Patching(self.input_channels, self.input_channels * 16)
+
+        self.stages = nn.ModuleList()
+        self.merges = nn.ModuleList()
+
+        self.dims = list(dim * 2**i for i in range(stage_num))
+        self.droppath_values = torch.linspace(0, droppath, sum(depths))
+
+        for i in range(stage_num):
+            blocks = nn.ModuleList(
+                [
+                    SwinBlock(
+                        heads=self.dims[i] // heads_ratio,
+                        dim=self.dims[i],
+                        dropout_mha=dropout_mha,
+                        dropout_mlp=dropout_mlp,
+                        dropout_outer=dropout_outer,
+                        droppath=self.droppath_values[sum(depths[:i]) + j],
+                        window_size=window_size,
+                    )
+                    for j in range(depths[i])
+                ]
+            )
+            self.stages.append(blocks)
+
+            self.merges.append(Merge(self.dims[i]))
+
+        self.shared_mlp = MLP(self.dims[-1], dropout_mlp, 2)
+
+    def forward(self, x):
+        x = self.patch_embed(x)
+
+        for stage_idx, blocks in enumerate(self.stages):
+
+            for block_idx, block in enumerate(blocks):
+                shift = 0 if block_idx % 2 == 0 else self.window_size // 2
+                x = block(x, shift)
+
+            if stage_idx < len(self.merges):
+                x = self.merges[stage_idx](x)
+
+        return x
+
+
 device = torch.device("cuda")
 
-model = SwinBlock(6, 48, 0, 0, 0, 0.1, 7).to(device)
-x = torch.randn(1, 48, 167, 180, device=device)
+x = torch.randn(1, 3, 448, 672, device=device)
 
-shift_size = math.ceil(7 / 2)
-print(model(x, shift_size, True))
+model = SwinModel(
+    heads_ratio=6,
+    dim=48,
+    dropout_mha=0,
+    dropout_mlp=0,
+    dropout_outer=0,
+    droppath=0.1,
+    window_size=7,
+    input_channels=3,
+    depths=[2, 2, 8, 2],
+    stage_num=4,
+).to(device)
+out = model(x)
+print(out.shape)
+
+# make increasing droppath probability with depth
+# make final mlp with multiple heads
+# make

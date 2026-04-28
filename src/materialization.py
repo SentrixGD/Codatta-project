@@ -66,13 +66,12 @@ def download_and_save(i: int, item: dict) -> dict | None:
     """
 
     img_name = f"{i:06d}.jpg"
-    img_path = os.path.join(IMG_DIR, img_name)
     url = item["image_url"]
 
     # resume behavior: skip download if already cached locally
-    if os.path.exists(img_path):
+    if os.path.exists(os.path.join(IMG_DIR, img_name)):
         return {
-            "image_path": img_path,
+            "image_path": img_name,
             "dish_name": item["dish_name"],
             "food_type": item["food_type"],
             "ingredients": item["ingredients"],
@@ -94,10 +93,10 @@ def download_and_save(i: int, item: dict) -> dict | None:
                 continue
 
             img = Image.open(BytesIO(r.content)).convert("RGB")
-            img.save(img_path, format="JPEG")
+            img.save(os.path.join(IMG_DIR, img_name), format="JPEG")
 
             return {
-                "image_path": img_path,
+                "image_path": img_name,
                 "dish_name": item["dish_name"],
                 "food_type": item["food_type"],
                 "ingredients": item["ingredients"],

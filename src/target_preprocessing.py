@@ -94,7 +94,7 @@ class ImageDataset(Dataset):
 
         filename = os.path.basename(self.image_files[idx])
 
-        save_path = os.path.join(ROOT_DIR, "data", "resized_images", filename)
+        save_path = os.path.join(NEW_IMG_DIR, filename)
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         image.save(save_path)
@@ -113,7 +113,7 @@ class ImageDataset(Dataset):
             "food_prob": float(row["food_prob"]),
         }
 
-        return (image, sample, idx, image_height, image_width, save_path)
+        return (image, sample, idx, image_height, image_width, filename)
 
 
 def collate_fn(
@@ -339,6 +339,8 @@ if __name__ == "__main__":
 
     ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     DATA_DIR = os.path.join(ROOT_DIR, "data")
+    OLD_IMG_DIR = os.path.join(DATA_DIR, "images")
+    NEW_IMG_DIR = os.path.join(DATA_DIR, "resized_images")
     tqdm.pandas(dynamic_ncols=True)
 
     # -----------------------
@@ -347,9 +349,9 @@ if __name__ == "__main__":
 
     # Resize chosen to match transformer spatial design (patching + window stages) and reduce padding artifacts
     dataset = ImageDataset(
-        image_dir=os.path.join(DATA_DIR, "images"),
+        image_dir=OLD_IMG_DIR,
         parquet_path=os.path.join(DATA_DIR, "labels.parquet"),
-        resize=672,
+        resize=448,
     )
     loader = DataLoader(
         dataset,
@@ -387,14 +389,9 @@ if __name__ == "__main__":
     for images, targets, idxs, original_height, original_width, image_ids in tqdm(
         loader, total=len(loader), dynamic_ncols=True
     ):
-        print(image_ids)
         for image, target, idx, h, w, image_id in zip(
             images, targets, idxs, original_height, original_width, image_ids
         ):
-            print(image_id)
-            import time
-
-            time.sleep(100)
             image_files.append(image_id)
             image_stats["height"].append(h)
             image_stats["width"].append(w)
