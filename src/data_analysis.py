@@ -599,6 +599,7 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 5))
 
     dish_counts = target_data["dish_name"].value_counts()
+    dish_name_variety = pd.Series(dish_counts).nunique()
     dish_counts = dish_counts[dish_counts.index != "other"].head(TOP_K)
 
     values = dish_counts.values
@@ -629,6 +630,7 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
 
     ingredients = flatten(target_data["ingredients"])
+    ingredient_variety = pd.Series(ingredients).nunique()
     ingredient_counts = pd.Series(ingredients).value_counts().head(TOP_K)
 
     values = ingredient_counts.values
@@ -651,5 +653,24 @@ if __name__ == "__main__":
         bbox_inches="tight",
     )
     plt.close()
+
+    all_weighed_names = list(
+        chain.from_iterable(
+            item[0] for row in target_data["portion_size"] for item in row
+        )
+    )
+    unique_weighed_count = len(set(all_weighed_names))
+
+    with open(
+        os.path.join(ROOT_DIR, "stats", "data", "label_diversity_data.json"), "w"
+    ) as f:
+        json.dump(
+            {
+                "ingredients": ingredient_variety,
+                "dish_names": dish_name_variety,
+                "weighed_ingredients": unique_weighed_count,
+            },
+            f,
+        )
 
     print("Done!")
