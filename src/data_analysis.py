@@ -553,6 +553,7 @@ if __name__ == "__main__":
     # ----------------------------
 
     food_counts = target_data["food_type"].value_counts()
+    food_type_variety = pd.Series(food_counts).nunique()
 
     sns.barplot(x=food_counts.index, y=food_counts.values, palette="tab10")
 
@@ -573,6 +574,7 @@ if __name__ == "__main__":
 
     methods = flatten(target_data["cooking_method"])
     method_counts = pd.Series(methods).value_counts()
+    cooking_method_variety = pd.Series(method_counts).nunique()
 
     sns.barplot(x=method_counts.index, y=method_counts.values, palette="tab10")
 
@@ -654,11 +656,7 @@ if __name__ == "__main__":
     )
     plt.close()
 
-    all_weighed_names = list(
-        chain.from_iterable(
-            item[0] for row in target_data["portion_size"] for item in row
-        )
-    )
+    all_weighed_names = [name for row in target_data["portion_size"] for name, _ in row]
     unique_weighed_count = len(set(all_weighed_names))
 
     with open(
@@ -669,6 +667,8 @@ if __name__ == "__main__":
                 "ingredients": ingredient_variety,
                 "dish_names": dish_name_variety,
                 "weighed_ingredients": unique_weighed_count,
+                "food_types": food_type_variety,
+                "cooking_methods": cooking_method_variety,
             },
             f,
         )
