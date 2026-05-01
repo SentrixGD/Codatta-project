@@ -157,6 +157,8 @@ def parse_portion(entry: List[str]) -> List[Tuple[str, float]]:
     Returns:
         - List[Tuple[str, float]]: List of tuples, where each tuple contains the name of the ingredient and its weight
     """
+    if not entry:
+        return []
     out = []
     for item in entry:
         try:
@@ -257,6 +259,41 @@ def safe_parse(x: List[str] | str) -> List[str]:
     if isinstance(x, str):
         return json.loads(x)
     return []
+
+
+def normalize_name(s: str) -> str:
+    return s.lower().replace(" ", "_")
+
+
+def normalize_portion_size(
+    portion: List[Tuple[str, float]], counter: Counter, threshold: int
+) -> List[Tuple[str, float]]:
+    """
+    Args:
+        portion: list[tuple(str, number)] OR list[list[str, number]]
+        counter: frequency of ingredient names (precomputed on normalized names)
+        threshold: rare cutoff
+
+    Returns:
+        list[(normalized_name, weight)]
+    """
+    if not isinstance(portion, list):
+        return []
+
+    out = []
+    for item in portion:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
+
+        name, weight = item
+        name = normalize_name(str(name))
+
+        if counter[name] <= threshold:
+            name = "other"
+
+        out.append((name, float(weight)))
+
+    return out
 
 
 if __name__ == "__main__":
@@ -475,6 +512,16 @@ if __name__ == "__main__":
     )
     full_data["portion_size"] = full_data["portion_size"].apply(
         lambda x: x if isinstance(x, list) else []
+    )
+
+    counter = Counter()
+
+    for row in full_data["portion_size"]:
+        if isinstance(row, list):
+            for name, _ in row:
+                counter[normalize_name(str(name))] += 1
+    full_data["portion_size"] = full_data["portion_size"].apply(
+        lambda x: normalize_portion_size(x, counter, threshold=24)
     )
 
     # -----------------------
