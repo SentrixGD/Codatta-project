@@ -133,6 +133,17 @@ def flatten(series: List[List[Any]]) -> List[Any]:
     return list(chain.from_iterable(series))
 
 
+def regression_stats(x):
+    x = np.asarray(x)
+    x_log = np.log1p(x)
+    return {
+        "mean": x.mean(),
+        "std": x.std(),
+        "log_mean": x_log.mean(),
+        "log_std": x_log.std(),
+    }
+
+
 if __name__ == "__main__":
 
     # ----------------------------
@@ -141,9 +152,10 @@ if __name__ == "__main__":
 
     ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     DATA_DIR = os.path.join(ROOT_DIR, "data")
+    os.makedirs(os.path.join(ROOT_DIR, "stats", "data"), exist_ok=True)
     dataset = ImageDataset(
         image_dir=os.path.join(DATA_DIR, "resized_images"),
-        parquet_path=os.path.join(DATA_DIR, "labels_processed.parquet"),
+        parquet_path=os.path.join(DATA_DIR, "train_labels.parquet"),
     )
     loader = DataLoader(
         dataset,
@@ -300,6 +312,8 @@ if __name__ == "__main__":
     # ADVANCED FEATURE ANALYSIS
     # ----------------------------
 
+    regression_labels_stats = {}
+
     target_data["portion_size"] = target_data["portion_size"].apply(
         lambda x: json.loads(x) if isinstance(x, str) else x
     )
@@ -310,8 +324,12 @@ if __name__ == "__main__":
     meal_weight_std_ratio = []
     normalized_meal_weight_entropy = []
     ingredient_counter = Counter()
+    all_meal_weights = []
     for meal in weights:
-        total = sum(g for _, g in meal)
+        meal_weights = [g for _, g in meal]
+        for i in meal_weights:
+            all_meal_weights.append(i)
+        total = sum(meal_weights)
         for ingredient, _ in meal:
             ingredient_counter[ingredient] += 1
         meal_total_weight.append(total)
@@ -329,6 +347,37 @@ if __name__ == "__main__":
             meal_weight_std_ratio.append(0.0)
             normalized_meal_weight_entropy.append(0.0)
 
+    # save ingredient frequencies
+    wieght_ingredient_counter = pd.DataFrame(
+        {
+            "ingredient": list(ingredient_counter.keys()),
+            "count": list(ingredient_counter.values()),
+        }
+    )
+    wieght_ingredient_counter.to_csv(
+        os.path.join(ROOT_DIR, "stats", "data", "weight_ingredient_counter.csv"),
+        index=False,
+    )
+
+    regression_labels_stats["portion_size"] = regression_stats(all_meal_weights)
+    regression_labels_stats["fat_g"] = regression_stats(target_data["fat_g"])
+    regression_labels_stats["protein_g"] = regression_stats(target_data["protein_g"])
+    regression_labels_stats["carbohydrate_g"] = regression_stats(
+        target_data["carbohydrate_g"]
+    )
+    regression_labels_stats["calories_kcal"] = regression_stats(
+        target_data["calories_kcal"]
+    )
+    with open(
+        os.path.join(ROOT_DIR, "stats", "data", "regression_labels_stats.json"), "w"
+    ) as f:
+        json.dump(regression_labels_stats, f, indent=4)
+
+    all_meal_weights = pd.DataFrame(all_meal_weights)
+    all_meal_weights.describe().T.to_csv(
+        os.path.join(ROOT_DIR, "stats", "data", "all_meal_weights.csv")
+    )
+
     target_data["meal_weight_entropy"] = normalized_meal_weight_entropy
     target_data["meal_total_weight"] = meal_total_weight
     target_data["meal_weight_max_ratio"] = meal_weight_max_ratio
@@ -343,7 +392,6 @@ if __name__ == "__main__":
     # SAVE CSV STATS
     # ----------------------------
 
-    os.makedirs(os.path.join(ROOT_DIR, "stats", "data"), exist_ok=True)
     target_describe = target_data.describe().T
     image_describe.to_csv(os.path.join(ROOT_DIR, "stats", "data", "image_describe.csv"))
     target_describe.to_csv(
@@ -553,6 +601,17 @@ if __name__ == "__main__":
     # ----------------------------
 
     food_counts = target_data["food_type"].value_counts()
+
+    food_type_data = pd.DataFrame(
+        {
+            "food_type": food_counts.index,
+            "count": food_counts.values,
+        }
+    )
+    food_type_data.to_csv(
+        os.path.join(ROOT_DIR, "stats", "data", "food_type_counter.csv"), index=False
+    )
+
     food_type_variety = pd.Series(food_counts).nunique()
 
     sns.barplot(x=food_counts.index, y=food_counts.values, palette="tab10")
@@ -574,6 +633,18 @@ if __name__ == "__main__":
 
     methods = flatten(target_data["cooking_method"])
     method_counts = pd.Series(methods).value_counts()
+
+    cooking_method_counter = pd.DataFrame(
+        {
+            "cooking_method": method_counts.index,
+            "count": method_counts.values,
+        }
+    )
+    cooking_method_counter.to_csv(
+        os.path.join(ROOT_DIR, "stats", "data", "cooking_method_counter.csv"),
+        index=False,
+    )
+
     cooking_method_variety = pd.Series(method_counts).nunique()
 
     sns.barplot(x=method_counts.index, y=method_counts.values, palette="tab10")
@@ -601,7 +672,18 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 5))
 
     dish_counts = target_data["dish_name"].value_counts()
-    dish_name_variety = pd.Series(dish_counts).nunique()
+
+    dish_name_counter = pd.DataFrame(
+        {
+            "dish_name": dish_counts.index,
+            "count": dish_counts.values,
+        }
+    )
+    dish_name_counter.to_csv(
+        os.path.join(ROOT_DIR, "stats", "data", "dish_name_counter.csv"), index=False
+    )
+
+    dish_name_variety = target_data["dish_name"].nunique()
     dish_counts = dish_counts[dish_counts.index != "other"].head(TOP_K)
 
     values = dish_counts.values
@@ -633,7 +715,20 @@ if __name__ == "__main__":
 
     ingredients = flatten(target_data["ingredients"])
     ingredient_variety = pd.Series(ingredients).nunique()
-    ingredient_counts = pd.Series(ingredients).value_counts().head(TOP_K)
+    ingredient_counts = pd.Series(ingredients).value_counts()
+
+    ingredient_counts_counter = pd.DataFrame(
+        {
+            "dish_name": ingredient_counts.index,
+            "count": ingredient_counts.values,
+        }
+    )
+    ingredient_counts_counter.to_csv(
+        os.path.join(ROOT_DIR, "stats", "data", "ingredient_counter.csv"),
+        index=False,
+    )
+
+    ingredient_counts = ingredient_counts.head(TOP_K)
 
     values = ingredient_counts.values
 

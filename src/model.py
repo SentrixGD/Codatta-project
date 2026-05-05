@@ -552,7 +552,6 @@ class SwinModel(nn.Module):
                 ]
             )
             self.stages.append(blocks)
-            print(self.dims[i], self.dims[i + 1] / self.dims[i])
             self.merges.append(
                 Merge(
                     self.dims[i],
@@ -667,41 +666,3 @@ def init_weights(m):
     elif isinstance(m, nn.LayerNorm):
         nn.init.ones_(m.weight)
         nn.init.zeros_(m.bias)
-
-
-device = torch.device("cuda")
-
-x = torch.randn(2, 3, 448, 672, device=device)
-
-model = SwinModel(
-    heads_ratio=16,
-    dim=64,
-    dropout_mha=0,
-    dropout_swin_mlp=0,
-    dropout_outer=0,
-    dropout_shared_mlp=0.25,
-    dropout_pre_output=0.1,
-    droppath=0.1,
-    window_size=7,
-    input_channels=3,
-    depths=[2, 2, 18, 2],
-    stage_num=4,
-    shared_mlp_size=1024,
-    ingredients_mlp_size=768,
-    portions_mlp_size=768,
-    dish_names_mlp_size=512,
-    food_type_classes=5,
-    ingredients_classes=589,
-    portion_size_classes=437,
-    dish_names_classes=191,
-    cooking_method_classes=15,
-    binary_classes=2,
-).to(device)
-model.apply(init_weights)
-out = model(x)
-for i in out:
-    print(i, out[i].shape)
-
-from torchinfo import summary
-
-summary(model, input_size=x.shape)
