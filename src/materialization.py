@@ -159,9 +159,7 @@ if __name__ == "__main__":
     # -----------------------
     # DETERMINE MISSING
     # -----------------------
-    missing_indices = [
-        i for i in range(N) if os.path.join(IMG_DIR, f"{i:06d}.jpg") not in done_set
-    ]
+    missing_indices = [i for i in range(N) if os.path.join(IMG_DIR, f"{i:06d}.jpg") not in done_set]
 
     print(f"To process: {len(missing_indices)}")
 
@@ -175,9 +173,7 @@ if __name__ == "__main__":
     # use multi-threaded download
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         # submit tasks
-        futures = {
-            ex.submit(download_and_save, i, split[i]): i for i in missing_indices
-        }
+        futures = {ex.submit(download_and_save, i, split[i]): i for i in missing_indices}
 
         for f in as_completed(futures):
             res = f.result()

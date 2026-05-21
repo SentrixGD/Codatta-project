@@ -46,11 +46,7 @@ if __name__ == "__main__":
         # Sort each group by its dominant spatial dimension to cluster similarly shaped images together
         stretched_h.sort(key=lambda x: x["h"])
         stretched_w.sort(key=lambda x: x["w"])
-        ordered_paths = [x["path"] for x in stretched_h] + [
-            x["path"] for x in stretched_w
-        ]
+        ordered_paths = [x["path"] for x in stretched_h] + [x["path"] for x in stretched_w]
         data = data.set_index("image_path").loc[ordered_paths].reset_index()
-        data.to_parquet(
-            os.path.join(ROOT_DIR, "data", f"{i}_labels_sorted.parquet"), index=False
-        )
+        data.to_parquet(os.path.join(ROOT_DIR, "data", f"{i}_labels_sorted.parquet"), index=False)
     print("Done!")

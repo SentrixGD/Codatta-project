@@ -82,9 +82,7 @@ class MultiHeadAttention(nn.Module):
         self.proj_out = nn.Linear(dim, dim)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(
-        self, x_q: torch.Tensor, x_kv: torch.Tensor, attn_mask: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x_q: torch.Tensor, x_kv: torch.Tensor, attn_mask: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of the multi-head attention module. Assumes self-attention.
 
@@ -101,9 +99,9 @@ class MultiHeadAttention(nn.Module):
 
         B, W, L, _ = x_q.shape
 
-        assert (
-            attn_mask.shape[0] == B and attn_mask.shape[1] == W
-        ), "attn_mask must be of shape (batch_size, num_windows, seq_len, seq_len)"
+        assert attn_mask.shape[0] == B and attn_mask.shape[1] == W, (
+            "attn_mask must be of shape (batch_size, num_windows, seq_len, seq_len)"
+        )
 
         q = self.proj_q(x_q)
         k = self.proj_k(x_kv)
@@ -315,9 +313,7 @@ def windowing(
     )
 
     # create validity mask that enables only valid patches, disabling padding from attending to other tokens and vice versa
-    valid = mask.reshape(
-        B, (H_pad // window_size) * (W_pad // window_size) * window_size * window_size
-    )
+    valid = mask.reshape(B, (H_pad // window_size) * (W_pad // window_size) * window_size * window_size)
     valid_windows = valid.view(B, -1, window_size * window_size)
     valid_mask = valid_windows[:, :, :, None] & valid_windows[:, :, None, :]
     final_mask = attn_mask & valid_mask
@@ -530,9 +526,7 @@ class SwinModel(nn.Module):
 
         self.dims = [48] + list(dim * 2**i for i in range(1, stage_num + 1))
 
-        assert all(
-            i % self.heads_ratio == 0 for i in self.dims
-        ), "dim must be divisible by heads_ratio"
+        assert all(i % self.heads_ratio == 0 for i in self.dims), "dim must be divisible by heads_ratio"
 
         self.droppath_values = torch.linspace(0, droppath, sum(depths))
 
@@ -590,24 +584,19 @@ class SwinModel(nn.Module):
             nn.Dropout(dropout_pre_output),
             nn.Linear(dish_names_mlp_size, dish_names_classes),
         )
-        self.cooking_method_head = nn.Linear(
-            self.shared_mlp_size // 2, cooking_method_classes
-        )
+        self.cooking_method_head = nn.Linear(self.shared_mlp_size // 2, cooking_method_classes)
         self.calories_head = nn.Linear(self.shared_mlp_size // 2, 1)
         self.fats_head = nn.Linear(self.shared_mlp_size // 2, 1)
         self.carbohydrates_head = nn.Linear(self.shared_mlp_size // 2, 1)
         self.proteins_head = nn.Linear(self.shared_mlp_size // 2, 1)
         self.binary_head = nn.Linear(self.shared_mlp_size // 2, binary_classes)
         self.portion_weight_output = nn.Linear(portions_mlp_size, portion_size_classes)
-        self.portion_presence_output = nn.Linear(
-            portions_mlp_size, portion_size_classes
-        )
+        self.portion_presence_output = nn.Linear(portions_mlp_size, portion_size_classes)
 
     def forward(self, x):
         x = self.patch_embed(x)
 
         for stage_idx, blocks in enumerate(self.stages):
-
             for block_idx, block in enumerate(blocks):
                 shift = 0 if block_idx % 2 == 0 else self.window_size // 2
                 x = block(x, shift)

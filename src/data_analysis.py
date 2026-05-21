@@ -145,7 +145,6 @@ def regression_stats(x):
 
 
 if __name__ == "__main__":
-
     # ----------------------------
     # CONFIGURATION
     # ----------------------------
@@ -195,11 +194,7 @@ if __name__ == "__main__":
         "camera_or_phone_prob": [],
         "food_prob": [],
     }
-    kernel = (
-        torch.tensor([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=torch.float32)
-        .unsqueeze(0)
-        .unsqueeze(0)
-    )
+    kernel = torch.tensor([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=torch.float32).unsqueeze(0).unsqueeze(0)
 
     # ----------------------------
     # ANALYSIS
@@ -210,7 +205,6 @@ if __name__ == "__main__":
     n_pixels = 0
     for images, targets, idxs in tqdm(loader, total=len(loader), dynamic_ncols=True):
         for image, target, idx in zip(images, targets, idxs):
-
             # ----------------------------
             # IMAGE ANALYSIS
             # ----------------------------
@@ -246,9 +240,7 @@ if __name__ == "__main__":
             lap = F.conv2d(gray_unsqueezed, kernel, padding=1)
 
             image_stats["sharpness"].append(lap.var().item())
-            image_stats["luminance"].append(
-                0.299 * r_mean + 0.587 * g_mean + 0.114 * b_mean
-            )
+            image_stats["luminance"].append(0.299 * r_mean + 0.587 * g_mean + 0.114 * b_mean)
             maxc = torch.maximum(torch.maximum(r, g), b)
             minc = torch.minimum(torch.minimum(r, g), b)
             sat = (maxc - minc) / (maxc + 1e-8)
@@ -362,21 +354,13 @@ if __name__ == "__main__":
     regression_labels_stats["portion_size"] = regression_stats(all_meal_weights)
     regression_labels_stats["fat_g"] = regression_stats(target_data["fat_g"])
     regression_labels_stats["protein_g"] = regression_stats(target_data["protein_g"])
-    regression_labels_stats["carbohydrate_g"] = regression_stats(
-        target_data["carbohydrate_g"]
-    )
-    regression_labels_stats["calories_kcal"] = regression_stats(
-        target_data["calories_kcal"]
-    )
-    with open(
-        os.path.join(ROOT_DIR, "stats", "data", "regression_labels_stats.json"), "w"
-    ) as f:
+    regression_labels_stats["carbohydrate_g"] = regression_stats(target_data["carbohydrate_g"])
+    regression_labels_stats["calories_kcal"] = regression_stats(target_data["calories_kcal"])
+    with open(os.path.join(ROOT_DIR, "stats", "data", "regression_labels_stats.json"), "w") as f:
         json.dump(regression_labels_stats, f, indent=4)
 
     all_meal_weights = pd.DataFrame(all_meal_weights)
-    all_meal_weights.describe().T.to_csv(
-        os.path.join(ROOT_DIR, "stats", "data", "all_meal_weights.csv")
-    )
+    all_meal_weights.describe().T.to_csv(os.path.join(ROOT_DIR, "stats", "data", "all_meal_weights.csv"))
 
     target_data["meal_weight_entropy"] = normalized_meal_weight_entropy
     target_data["meal_total_weight"] = meal_total_weight
@@ -384,9 +368,9 @@ if __name__ == "__main__":
     target_data["num_weight_ingredients"] = num_weight_ingredients
     target_data["meal_weight_std_ratio"] = meal_weight_std_ratio
     target_data["num_ingredients"] = target_data["ingredients"].apply(lambda x: len(x))
-    portion_ingredients = pd.DataFrame(
-        ingredient_counter.items(), columns=["ingredient", "count"]
-    ).sort_values("count", ascending=False)
+    portion_ingredients = pd.DataFrame(ingredient_counter.items(), columns=["ingredient", "count"]).sort_values(
+        "count", ascending=False
+    )
 
     # ----------------------------
     # SAVE CSV STATS
@@ -394,12 +378,8 @@ if __name__ == "__main__":
 
     target_describe = target_data.describe().T
     image_describe.to_csv(os.path.join(ROOT_DIR, "stats", "data", "image_describe.csv"))
-    target_describe.to_csv(
-        os.path.join(ROOT_DIR, "stats", "data", "target_describe.csv")
-    )
-    image_correlation.to_csv(
-        os.path.join(ROOT_DIR, "stats", "data", "image_correlation.csv")
-    )
+    target_describe.to_csv(os.path.join(ROOT_DIR, "stats", "data", "target_describe.csv"))
+    image_correlation.to_csv(os.path.join(ROOT_DIR, "stats", "data", "image_correlation.csv"))
 
     # ----------------------------
     # PLOTS
@@ -608,9 +588,7 @@ if __name__ == "__main__":
             "count": food_counts.values,
         }
     )
-    food_type_data.to_csv(
-        os.path.join(ROOT_DIR, "stats", "data", "food_type_counter.csv"), index=False
-    )
+    food_type_data.to_csv(os.path.join(ROOT_DIR, "stats", "data", "food_type_counter.csv"), index=False)
 
     food_type_variety = pd.Series(food_counts).nunique()
 
@@ -679,9 +657,7 @@ if __name__ == "__main__":
             "count": dish_counts.values,
         }
     )
-    dish_name_counter.to_csv(
-        os.path.join(ROOT_DIR, "stats", "data", "dish_name_counter.csv"), index=False
-    )
+    dish_name_counter.to_csv(os.path.join(ROOT_DIR, "stats", "data", "dish_name_counter.csv"), index=False)
 
     dish_name_variety = target_data["dish_name"].nunique()
     dish_counts = dish_counts[dish_counts.index != "other"].head(TOP_K)
@@ -754,9 +730,7 @@ if __name__ == "__main__":
     all_weighed_names = [name for row in target_data["portion_size"] for name, _ in row]
     unique_weighed_count = len(set(all_weighed_names))
 
-    with open(
-        os.path.join(ROOT_DIR, "stats", "data", "label_diversity_data.json"), "w"
-    ) as f:
+    with open(os.path.join(ROOT_DIR, "stats", "data", "label_diversity_data.json"), "w") as f:
         json.dump(
             {
                 "ingredients": ingredient_variety,

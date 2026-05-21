@@ -64,9 +64,7 @@ class ImageDataset(Dataset):
         """Returns the number of samples in the dataset."""
         return len(self.rows)
 
-    def __getitem__(
-        self, idx
-    ) -> Tuple[torch.Tensor, Dict[str, Any], int, int, int, str]:
+    def __getitem__(self, idx) -> Tuple[torch.Tensor, Dict[str, Any], int, int, int, str]:
         """
         Loads an image from disk, resizes it, converts to a tensor and returns it with metadata.
 
@@ -86,10 +84,16 @@ class ImageDataset(Dataset):
 
         # Resize according to patches (4x4)
         patch = 4
+
         if self.resize > 0:
             scale = self.resize / min(image_height, image_width)
             new_h = int(round(image_height * scale / patch) * patch)
             new_w = int(round(image_width * scale / patch) * patch)
+            max_ratio = 3.0
+            if new_h > new_w * max_ratio:
+                new_h = int(round((new_w * max_ratio) / patch) * patch)
+            elif new_w > new_h * max_ratio:
+                new_w = int(round((new_h * max_ratio) / patch) * patch)
             image = transforms.Resize((new_h, new_w))(image)
 
         filename = os.path.basename(self.image_files[idx])
@@ -442,21 +446,15 @@ if __name__ == "__main__":
             target_stats["ingredients"].append(target["ingredients"])
 
             # portion size is a list in a string, requires parsing
-            target_stats["portion_size"].append(
-                [parse_portion(json.loads(target["portion_size"]))]
-            )
+            target_stats["portion_size"].append([parse_portion(json.loads(target["portion_size"]))])
             target_stats["cooking_method"].append(target["cooking_method"])
             target_stats["camera_or_phone_prob"].append(target["camera_or_phone_prob"])
             target_stats["food_prob"].append(target["food_prob"])
 
             target_stats["nutritional_profile"]["fat_g"].append(nut["fat_g"])
             target_stats["nutritional_profile"]["protein_g"].append(nut["protein_g"])
-            target_stats["nutritional_profile"]["calories_kcal"].append(
-                nut["calories_kcal"]
-            )
-            target_stats["nutritional_profile"]["carbohydrate_g"].append(
-                nut["carbohydrate_g"]
-            )
+            target_stats["nutritional_profile"]["calories_kcal"].append(nut["calories_kcal"])
+            target_stats["nutritional_profile"]["carbohydrate_g"].append(nut["carbohydrate_g"])
             if idx == max_i:
                 done = True
                 break
@@ -485,9 +483,7 @@ if __name__ == "__main__":
     # -----------------------
 
     # many cooking methods are non-canonical strings, normalize them
-    full_data["cooking_method"] = full_data["cooking_method"].progress_apply(
-        normalize_methods
-    )
+    full_data["cooking_method"] = full_data["cooking_method"].progress_apply(normalize_methods)
 
     ingredients = Counter()
     for idx, row in full_data.iterrows():
@@ -497,10 +493,7 @@ if __name__ == "__main__":
 
     # threshold limits the number of unique ingredients
     full_data["ingredients"] = full_data["ingredients"].progress_apply(
-        lambda lst: [
-            normalize_ingredients(item, counter=ingredients, threshold=24)
-            for item in lst
-        ]
+        lambda lst: [normalize_ingredients(item, counter=ingredients, threshold=24) for item in lst]
     )
 
     # threshold limits the number of unique dish names
@@ -510,9 +503,7 @@ if __name__ == "__main__":
     full_data["dish_name"] = full_data["dish_name"].progress_apply(
         lambda line: normalize_ingredients(str(line), counter=dish_name, threshold=24)
     )
-    full_data["portion_size"] = full_data["portion_size"].apply(
-        lambda x: x if isinstance(x, list) else []
-    )
+    full_data["portion_size"] = full_data["portion_size"].apply(lambda x: x if isinstance(x, list) else [])
 
     counter = Counter()
 
@@ -529,10 +520,6 @@ if __name__ == "__main__":
     # -----------------------
 
     full_data["portion_size"] = full_data["portion_size"].apply(json.dumps)
-    full_data.to_parquet(
-        os.path.join(ROOT_DIR, "data", "labels_processed.parquet"), index=False
-    )
-    image_describe.to_csv(
-        os.path.join(ROOT_DIR, "stats", "data", "image_size_stats.csv"), index=True
-    )
+    full_data.to_parquet(os.path.join(ROOT_DIR, "data", "labels_processed.parquet"), index=False)
+    image_describe.to_csv(os.path.join(ROOT_DIR, "stats", "data", "image_size_stats.csv"), index=True)
     print("Done!")

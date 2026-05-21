@@ -1,10 +1,10 @@
-from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
-import numpy as np
-import os
-import pandas as pd
-
-from collections import Counter
 import json
+import os
+from collections import Counter
+
+import numpy as np
+import pandas as pd
+from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 
 
 def clean_portion(x):
@@ -15,14 +15,12 @@ def clean_portion(x):
     if isinstance(x, str):
         try:
             x = json.loads(x)
-        except:
+        except Exception:
             return []
     return x if isinstance(x, list) else []
 
 
-DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"
-)
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
 data = pd.read_parquet(
     os.path.join(
@@ -117,9 +115,7 @@ val_sub_idx, test_sub_idx = next(msss2.split(val_X, val_Y))
 val_final_idx = val_idx[val_sub_idx]
 test_idx = val_idx[test_sub_idx]
 
-base_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"
-)
+base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 data.iloc[train_idx].to_parquet(os.path.join(DATA_DIR, "train_labels.parquet"))
 data.iloc[val_final_idx].to_parquet(os.path.join(DATA_DIR, "val_labels.parquet"))
 data.iloc[test_idx].to_parquet(os.path.join(DATA_DIR, "test_labels.parquet"))

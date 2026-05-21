@@ -1,37 +1,41 @@
+import ast
+import json
+import math
 import os
+from collections import defaultdict
+from typing import Callable, Dict, Tuple
 
-from torchinfo import summary
-
-from src.model import SwinModel, init_weights
+import numpy as np
 import pandas as pd
 import torch
-from torchviz import make_dot
+import torch.nn.functional as F
+import wandb
+from PIL import Image
+from sklearn import f1_score
+from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
-from PIL import Image
-import math
+from torchinfo import summary
 from torchvision import transforms
+from torchviz import make_dot
 from tqdm import tqdm
-from typing import Tuple, Dict, List, Callable
-import json
-from collections import Counter
-import ast
-import numpy as np
-from torch import nn
-import torch.nn.functional as F
+
+from src.model import SwinModel, init_weights
 
 LossType = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT_DIR, "data")
+wandb.init(project="your_project", mode="online")
 
 
 def normalize(s):
+
     return s.replace(" ", "_").lower()
 
 
 def load_image(image_id: str) -> torch.Tensor:
-    path = os.path.join(DATA_DIR, f"resized_images", image_id)
+    path = os.path.join(DATA_DIR, "resized_images", image_id)
     image = Image.open(path).convert("RGB")
     image = train_transform(image)
     return image
@@ -105,17 +109,11 @@ class FoodDataset(Dataset):
         targets["food_type"] = encode_single(row["food_type"], self.food_type_vocab)
         targets["dish_name"] = encode_single(row["dish_name"], self.dish_name_vocab)
 
-        targets["cooking_method"] = encode_multilabel(
-            row["cooking_method"], self.cooking_method_vocab
-        )
+        targets["cooking_method"] = encode_multilabel(row["cooking_method"], self.cooking_method_vocab)
 
-        targets["ingredients"] = encode_multilabel(
-            row["ingredients"], self.ingredients_vocab
-        )
+        targets["ingredients"] = encode_multilabel(row["ingredients"], self.ingredients_vocab)
 
-        presence, weight = encode_portion(
-            row["portion_size"], self.portion_ingredients_vocab
-        )
+        presence, weight = encode_portion(row["portion_size"], self.portion_ingredients_vocab)
 
         targets["portion_presence"] = presence
         weight = weight.to(torch.float32)
@@ -124,39 +122,34 @@ class FoodDataset(Dataset):
 
         targets["portion_weight"] = torch.zeros_like(weight)
 
-        targets["portion_weight"][mask] = (
-            np.log1p(weight[mask])
-            - self.regression_normalization["portion_size"]["log_mean"]
-        ) / (self.regression_normalization["portion_size"]["log_std"])
+        targets["portion_weight"][mask] = torch.tensor(
+            (np.log1p(weight[mask]) - self.regression_normalization["portion_size"]["log_mean"])
+            / (self.regression_normalization["portion_size"]["log_std"]),
+            dtype=torch.float32,
+        )
 
         targets["fat_g"] = torch.tensor(
-            np.log1p(row["fat_g"])
-            - self.regression_normalization["fat_g"]["log_mean"]
+            (np.log1p(row["fat_g"]) - self.regression_normalization["fat_g"]["log_mean"])
             / (self.regression_normalization["fat_g"]["log_std"]),
             dtype=torch.float32,
         )
         targets["protein_g"] = torch.tensor(
-            np.log1p(row["protein_g"])
-            - self.regression_normalization["protein_g"]["log_mean"]
+            (np.log1p(row["protein_g"]) - self.regression_normalization["protein_g"]["log_mean"])
             / (self.regression_normalization["protein_g"]["log_std"]),
             dtype=torch.float32,
         )
         targets["carbohydrate_g"] = torch.tensor(
-            np.log1p(row["carbohydrate_g"])
-            - self.regression_normalization["carbohydrate_g"]["log_mean"]
+            (np.log1p(row["carbohydrate_g"]) - self.regression_normalization["carbohydrate_g"]["log_mean"])
             / (self.regression_normalization["carbohydrate_g"]["log_std"]),
             dtype=torch.float32,
         )
         targets["calories_kcal"] = torch.tensor(
-            np.log1p(row["calories_kcal"])
-            - self.regression_normalization["calories_kcal"]["log_mean"]
+            (np.log1p(row["calories_kcal"]) - self.regression_normalization["calories_kcal"]["log_mean"])
             / (self.regression_normalization["calories_kcal"]["log_std"]),
             dtype=torch.float32,
         )
 
-        targets["camera_or_phone_prob"] = torch.tensor(
-            row["camera_or_phone_prob"], dtype=torch.float32
-        )
+        targets["camera_or_phone_prob"] = torch.tensor(row["camera_or_phone_prob"], dtype=torch.float32)
         targets["food_prob"] = torch.tensor(row["food_prob"], dtype=torch.float32)
 
         return {
@@ -177,12 +170,14 @@ class FoodDataset(Dataset):
 
 
 class LossCombiner(nn.Module):
-    def __init__(self, losses: Dict[str, nn.Module]):
+    def __init__(self, losses: Dict[str, nn.Module], ema_factor: float):
         super().__init__()
         self.losses = losses
 
         self.loss_names = list(losses.keys())
         self.log_vars = nn.Parameter(torch.zeros(len(losses)))  # s = log(sigma^2)
+        self.ema_factor = ema_factor
+        self.ema_scores = {name: 0.0 for name in self.loss_names}
 
         self.tasks = {
             "food_type": {"target": "food_type", "type": "cls"},
@@ -201,21 +196,16 @@ class LossCombiner(nn.Module):
             },
         }
 
-    def forward(
-        self, outputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]
-    ):
+    def forward(self, outputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor]):
         total_loss = 0.0
         loss_dict = {}
 
         for i, name in enumerate(self.loss_names):
-
             s = self.log_vars[i]
             task = self.tasks[name]
 
             if isinstance(task["target"], list):
-                target = torch.stack(
-                    [targets[t] for t in task["target"]], dim=1
-                )  # shape [B, 2]
+                target = torch.stack([targets[t] for t in task["target"]], dim=1)  # shape [B, 2]
             else:
                 target = targets[task["target"]]
             output = outputs[f"{name}_logits"]
@@ -228,19 +218,19 @@ class LossCombiner(nn.Module):
                 output = output * targets["portion_presence"]
 
             base_loss = self.losses[name](output, target)
+            self.ema_scores[name] = self.ema_factor * self.ema_scores[name] + (1 - self.ema_factor) * base_loss.detach()
+
+            scaled_loss = base_loss / (self.ema_scores[name] + 1e-8)
 
             if task["type"] == "reg":
-                weighted_loss = torch.exp(-s) * base_loss + 0.5 * s
+                weighted_loss = torch.exp(-s) * scaled_loss + 0.5 * s
             else:
-                weighted_loss = torch.exp(-s) * base_loss + s
+                weighted_loss = torch.exp(-s) * scaled_loss + s
 
             total_loss += weighted_loss
-            loss_dict[name] = base_loss.detach()
+            loss_dict[name] = scaled_loss.detach()
 
-        kendall_weights = {
-            name: torch.exp(-self.log_vars[i]).item()
-            for i, name in enumerate(self.loss_names)
-        }
+        kendall_weights = {name: torch.exp(-self.log_vars[i]).item() for i, name in enumerate(self.loss_names)}
 
         return total_loss, loss_dict, kendall_weights
 
@@ -269,9 +259,7 @@ def encode_portion(portion_list, vocab):
     return presence, weight
 
 
-def build_class_weights(
-    file_name: str, vocab: Dict[str, int], ignore_class: str = None
-):
+def build_class_weights(file_name: str, vocab: Dict[str, int], ignore_class: str = None):
     df = pd.read_csv(os.path.join(ROOT_DIR, "stats", "data", file_name))
 
     key_col = df.columns[0]
@@ -328,15 +316,281 @@ def collate_fn(batch):
     return collated
 
 
+def stress_test(model, total_loss, optimizer, device, batch_size=2, height=448, width=672):
+    model.train()
+
+    print(f"Testing batch={batch_size}, resolution={height}x{width}")
+
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats(device)
+
+    dummy_batch = {
+        "image": torch.randn(
+            batch_size,
+            3,
+            height,
+            width,
+            device=device,
+        ),
+        # classification targets
+        "food_type": torch.randint(
+            0,
+            model.food_type_classes,
+            (batch_size,),
+            device=device,
+        ),
+        "dish_name": torch.randint(
+            0,
+            model.dish_names_classes,
+            (batch_size,),
+            device=device,
+        ),
+        # multilabel targets
+        "ingredients": torch.randint(
+            0,
+            2,
+            (batch_size, model.ingredients_classes),
+            device=device,
+        ).float(),
+        "portion_presence": torch.randint(
+            0,
+            2,
+            (batch_size, model.portion_size_classes),
+            device=device,
+        ).float(),
+        "cooking_method": torch.randint(
+            0,
+            2,
+            (batch_size, model.cooking_method_classes),
+            device=device,
+        ).float(),
+        # regressions
+        "portion_weight": torch.randn(
+            batch_size,
+            model.portion_size_classes,
+            device=device,
+        ),
+        "calories_kcal": torch.randn(batch_size, device=device),
+        "fat_g": torch.randn(batch_size, device=device),
+        "carbohydrate_g": torch.randn(batch_size, device=device),
+        "protein_g": torch.randn(batch_size, device=device),
+        "food_prob": torch.rand(batch_size, device=device),
+        "camera_or_phone_prob": torch.rand(batch_size, device=device),
+    }
+
+    optimizer.zero_grad(set_to_none=True)
+
+    with torch.amp.autocast("cuda", dtype=torch.float16):
+        outputs = model(dummy_batch["image"])
+        loss, _, _ = total_loss(outputs, dummy_batch)
+
+    loss.backward()
+
+    peak_mem = torch.cuda.max_memory_allocated(device) / 1024**3
+
+    print("Loss:", loss.item())
+    print(f"Peak VRAM: {peak_mem:.2f} GB")
+
+    optimizer.zero_grad(set_to_none=True)
+
+    print("Stress test passed.")
+
+
+def val_single_class(
+    outputs: Dict[str, torch.Tensor],
+    batch: Dict[str, torch.Tensor],
+    name: str,
+    topk: int,
+) -> Tuple[int, int, int]:
+
+    logits = outputs[f"{name}_logits"]
+    target = batch[name]
+
+    pred = logits.argmax(dim=1)
+
+    correct = (pred == target).sum().item()
+    total = target.numel()
+
+    if topk > 1:
+        topk_pred = logits.topk(topk, dim=1).indices
+        correctk = topk_pred.eq(target.unsqueeze(1)).any(dim=1).sum().item()
+    else:
+        correctk = 0
+
+    return correct, total, correctk
+
+
+def val_regression(
+    outputs: Dict[str, torch.Tensor],
+    batch: Dict[str, torch.Tensor],
+    name: str,
+    data_name: str,
+) -> Tuple[float, int]:
+    prediction = outputs[f"{name}_logits"].squeeze(1)
+
+    target = batch[f"{data_name}"]
+
+    mae_sum = torch.abs(prediction - target).sum().item()
+
+    count = target.numel()
+
+    return mae_sum, count
+
+
+def build_log_row(metrics: dict, headers: list[str]):
+    row = []
+    for h in headers:
+        if h not in metrics:
+            raise KeyError(f"Missing metric: {h}")
+        row.append(metrics[h])
+    return row
+
+
+def evaluate(model, dataloader, device):
+    model.eval()
+
+    val_losses = {name: 0.0 for name in total_loss.loss_names}
+    val_total_loss = 0.0
+    val_batches = 0
+
+    cls_correct = defaultdict(int)
+    cls_total = defaultdict(int)
+    cls_topk_correct = defaultdict(int)
+
+    multilabel_preds = {name: [] for name in MULTILABEL_TASKS}
+    multilabel_targets = {name: [] for name in MULTILABEL_TASKS}
+
+    regression_mae_sum = {name: 0.0 for name, _ in REGRESSION_TASKS}
+    regression_count = {name: 0 for name, _ in REGRESSION_TASKS}
+
+    portion_weight_abs_sum = 0.0
+    portion_weight_count = 0
+
+    with torch.no_grad():
+        for batch in dataloader:
+            batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
+
+            outputs = model(batch["image"])
+
+            loss, loss_dict, _ = total_loss(outputs, batch)
+
+            val_total_loss += loss.item()
+
+            for k, v in loss_dict.items():
+                val_losses[k] += v.item()
+
+            val_batches += 1
+
+            # classification
+            for name, topk in CLASSIFICATION_TASKS:
+                correct, total, correctk = val_single_class(outputs, batch, name, topk)
+
+                cls_correct[name] += correct
+                cls_total[name] += total
+                cls_topk_correct[name] += correctk
+
+            # regression
+            for task_name, target_name in REGRESSION_TASKS:
+                mae_sum, count = val_regression(outputs, batch, task_name, target_name)
+
+                regression_mae_sum[task_name] += mae_sum
+                regression_count[task_name] += count
+
+            # multilabel
+            for name in MULTILABEL_TASKS:
+                pred = (torch.sigmoid(outputs[f"{name}_logits"]) > 0.5).cpu()
+                target = batch[name].cpu()
+
+                multilabel_preds[name].append(pred)
+                multilabel_targets[name].append(target)
+
+            # custom
+            pred = outputs["portion_weight_logits"]
+            target = batch["portion_weight"]
+            mask = batch["portion_presence"].bool()
+
+            portion_weight_abs_sum += torch.abs(pred[mask] - target[mask]).sum().item()
+            portion_weight_count += mask.sum().item()
+
+    return {
+        "val_losses": val_losses,
+        "val_total_loss": val_total_loss,
+        "val_batches": val_batches,
+        "cls_correct": cls_correct,
+        "cls_total": cls_total,
+        "cls_topk_correct": cls_topk_correct,
+        "multilabel_preds": multilabel_preds,
+        "multilabel_targets": multilabel_targets,
+        "regression_mae_sum": regression_mae_sum,
+        "regression_count": regression_count,
+        "portion_weight_abs_sum": portion_weight_abs_sum,
+        "portion_weight_count": portion_weight_count,
+    }
+
+
+def compute_metrics(state, epoch=None):
+    val_losses = {k: v / state["val_batches"] for k, v in state["val_losses"].items()}
+
+    val_total_loss = state["val_total_loss"] / state["val_batches"]
+
+    classification_metrics = {
+        name: state["cls_correct"][name] / state["cls_total"][name] for name, _ in CLASSIFICATION_TASKS
+    }
+
+    regression_metrics = {
+        f"{name}_mae": state["regression_mae_sum"][name] / state["regression_count"][name]
+        for name, _ in REGRESSION_TASKS
+    }
+
+    ingredients_pred = torch.cat(state["multilabel_preds"]["ingredients"]).cpu().numpy()
+    ingredients_target = torch.cat(state["multilabel_targets"]["ingredients"]).cpu().numpy()
+
+    multilabel_metrics = {
+        "ingredients_micro_f1": f1_score(ingredients_target, ingredients_pred, average="micro"),
+        "ingredients_macro_f1": f1_score(ingredients_target, ingredients_pred, average="macro"),
+    }
+
+    portion_weight_mae = state["portion_weight_abs_sum"] / max(state["portion_weight_count"], 1)
+
+    metrics = {
+        "epoch": epoch,
+        "val_total_loss": val_total_loss,
+        **{f"loss_{k}": v for k, v in val_losses.items()},
+        **classification_metrics,
+        **regression_metrics,
+        **multilabel_metrics,
+        "portion_weight_mae": portion_weight_mae,
+    }
+
+    return metrics
+
+
 if __name__ == "__main__":
+    CLASSIFICATION_TASKS = [
+        ("food_type", 1),
+        ("dish_name", 5),
+    ]
+
+    MULTILABEL_TASKS = [
+        "ingredients",
+        "portion_presence",
+        "cooking_method",
+    ]
+
+    REGRESSION_TASKS = [
+        ("calories", "calories_kcal"),
+        ("fats", "fat_g"),
+        ("carbohydrates", "carbohydrate_g"),
+        ("proteins", "protein_g"),
+        ("camera_or_phone", "camera_or_phone_prob"),
+        ("food", "food_prob"),
+    ]
 
     train = pd.read_parquet(os.path.join(DATA_DIR, "train_labels_sorted.parquet"))
     val = pd.read_parquet(os.path.join(DATA_DIR, "val_labels_sorted.parquet"))
     test = pd.read_parquet(os.path.join(DATA_DIR, "test_labels_sorted.parquet"))
 
-    image_norms = json.load(
-        open(os.path.join(ROOT_DIR, "stats", "data", "image_normalization.json"), "r")
-    )
+    image_norms = json.load(open(os.path.join(ROOT_DIR, "stats", "data", "image_normalization.json"), "r"))
     regression_norms = json.load(
         open(
             os.path.join(ROOT_DIR, "stats", "data", "regression_labels_stats.json"),
@@ -345,15 +599,11 @@ if __name__ == "__main__":
     )
     image_norm_mean = image_norms["mean"]
     image_norm_std = image_norms["std"]
-    train_transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(image_norm_mean, image_norm_std)]
-    )
+    train_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(image_norm_mean, image_norm_std)])
 
     food_type_vocab, food_type_inverse_vocab = build_vocab(train["food_type"])
     dish_name_vocab, dish_name_inverse_vocab = build_vocab(train["dish_name"])
-    cooking_method_vocab, cooking_method_inverse_vocab = build_multilabel_vocab(
-        train["cooking_method"]
-    )
+    cooking_method_vocab, cooking_method_inverse_vocab = build_multilabel_vocab(train["cooking_method"])
 
     train["portion_size"] = train["portion_size"].apply(ast.literal_eval)
     val["portion_size"] = val["portion_size"].apply(ast.literal_eval)
@@ -362,9 +612,7 @@ if __name__ == "__main__":
     portion_ingredient_vocab, portion_ingredient_inverse_vocab = build_multilabel_vocab(
         train["portion_size"].apply(lambda x: list(i[0] for i in x))
     )
-    ingredients_vocab, ingredients_inverse_vocab = build_multilabel_vocab(
-        train["ingredients"]
-    )
+    ingredients_vocab, ingredients_inverse_vocab = build_multilabel_vocab(train["ingredients"])
 
     train_dataset = FoodDataset(
         train,
@@ -446,12 +694,8 @@ if __name__ == "__main__":
     )
     dish_name_weights = build_class_weights("dish_name_counter.csv", dish_name_vocab)
     food_type_weights = build_class_weights("food_type_counter.csv", food_type_vocab)
-    ingredient_weights = build_class_weights(
-        "ingredient_counter.csv", ingredients_vocab
-    )
-    portion_ingredient_weights = build_class_weights(
-        "weight_ingredient_counter.csv", portion_ingredient_vocab
-    )
+    ingredient_weights = build_class_weights("ingredient_counter.csv", ingredients_vocab)
+    portion_ingredient_weights = build_class_weights("weight_ingredient_counter.csv", portion_ingredient_vocab)
     food_type_weights = food_type_weights.to(device)
     dish_name_weights = dish_name_weights.to(device)
     ingredient_weights = ingredient_weights.to(device)
@@ -459,21 +703,11 @@ if __name__ == "__main__":
     portion_ingredient_weights = portion_ingredient_weights.to(device)
 
     loss_dictionary = {
-        "food_type": nn.CrossEntropyLoss(
-            label_smoothing=0.05, weight=food_type_weights
-        ),  # single-label
-        "ingredients": nn.BCEWithLogitsLoss(
-            pos_weight=ingredient_weights
-        ),  # multi-label
-        "portion_presence": nn.BCEWithLogitsLoss(
-            pos_weight=portion_ingredient_weights
-        ),  # multi-label
-        "cooking_method": nn.BCEWithLogitsLoss(
-            pos_weight=cooking_method_weights
-        ),  # multi-label
-        "dish_name": nn.CrossEntropyLoss(
-            label_smoothing=0.05, weight=dish_name_weights
-        ),  # single-label
+        "food_type": nn.CrossEntropyLoss(label_smoothing=0.05, weight=food_type_weights),  # single-label
+        "ingredients": nn.BCEWithLogitsLoss(pos_weight=ingredient_weights),  # multi-label
+        "portion_presence": nn.BCEWithLogitsLoss(pos_weight=portion_ingredient_weights),  # multi-label
+        "cooking_method": nn.BCEWithLogitsLoss(pos_weight=cooking_method_weights),  # multi-label
+        "dish_name": nn.CrossEntropyLoss(label_smoothing=0.05, weight=dish_name_weights),  # single-label
         "portion_weight": nn.HuberLoss(),  # vector regression
         "calories": nn.HuberLoss(),
         "fats": nn.HuberLoss(),
@@ -482,37 +716,85 @@ if __name__ == "__main__":
         "binary": nn.BCEWithLogitsLoss(),  # binary classification
     }
 
-    total_loss = LossCombiner(losses=loss_dictionary)
+    total_loss = LossCombiner(losses=loss_dictionary, ema_factor=0.99)
 
-    train_set = DataLoader(
-        train_dataset, batch_size=micro_batch_size, collate_fn=collate_fn
-    )
+    METRIC_SCHEMA = {
+        "meta": ["epoch", "model_name", "dataset", "val_total_loss"],
+        "loss": [f"loss_{name}" for name in total_loss.loss_names],
+        "classification": [
+            "food_type_acc",
+            "dish_name_top1_acc",
+            "dish_name_top5_acc",
+        ],
+        "regression": [
+            "calories_mae",
+            "fats_mae",
+            "carbohydrates_mae",
+            "proteins_mae",
+            "camera_or_phone_mae",
+            "food_mae",
+        ],
+        "multilabel": [
+            "ingredients_micro_f1",
+            "ingredients_macro_f1",
+        ],
+        "custom": [
+            "portion_weight_mae",
+        ],
+    }
+    HEADERS = sum(METRIC_SCHEMA.values(), [])
+
+    train_set = DataLoader(train_dataset, batch_size=micro_batch_size, collate_fn=collate_fn)
+    val_set = DataLoader(val_dataset, batch_size=micro_batch_size, collate_fn=collate_fn)
+    test_set = DataLoader(test_dataset, batch_size=micro_batch_size, collate_fn=collate_fn)
 
     log_path = os.path.join(ROOT_DIR, "stats", "losses.csv")
 
     if not os.path.exists(log_path):
         with open(log_path, "w") as f:
             headers = (
-                ["epoch", "step", "total_loss"]
+                ["epoch", "step", "total_loss", "ema_moving_loss"]
                 + list(total_loss.loss_names)
                 + [f"{name}_ema" for name in total_loss.loss_names]
                 + [f"{name}_w" for name in total_loss.loss_names]
             )
             f.write(",".join(headers) + "\n")
 
-    adam = torch.optim.Adam(
-        list(model.parameters()) + list(total_loss.parameters()), lr=1e-4
-    )
+    val_log_path = os.path.join(ROOT_DIR, "stats", "validation_log.csv")
+
+    test_log_path = os.path.join(ROOT_DIR, "stats", "test_log.csv")
+
+    if not os.path.exists(val_log_path):
+        with open(val_log_path, "w") as f:
+            f.write(",".join(headers) + "\n")
+
+    adam = torch.optim.Adam(list(model.parameters()) + list(total_loss.parameters()), lr=1e-4)
 
     scheduler = CosineAnnealingLR(adam, T_max=total_steps - warmup_steps, eta_min=1e-6)
 
-    model.train()
+    scaler = torch.amp.GradScaler("cuda")
+
+    stress_test(
+        model,
+        total_loss,
+        adam,
+        device,
+        batch_size=2,
+        height=448,
+        width=int(448 * 3),
+    )
+
+    assert effective_batch_size % micro_batch_size == 0, (
+        "Batch size must be divisible by micro batch size, no trunkation allowed"
+    )
     accumulation_steps = effective_batch_size // micro_batch_size
+    training_step = 0
     for epoch in range(epochs):
+        model.train()
         adam.zero_grad(set_to_none=True)
         pbar = tqdm(
             total=math.ceil(len(train_dataset) / effective_batch_size),
-            desc=f"Epoch {epoch+1}/{epochs}",
+            desc=f"Epoch {epoch + 1}/{epochs}",
         )
         accum_counter = 0
         running_loss = 0.0
@@ -522,36 +804,77 @@ if __name__ == "__main__":
         ema_scores = {name: 0.0 for name in total_loss.loss_names}
 
         for batch in train_set:
-            batch = {
-                k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()
-            }
+            found_inf = False
+            batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
 
-            outputs = model(batch["image"])
+            with torch.amp.autocast("cuda", dtype=torch.float16):
+                outputs = model(batch["image"])
+                for i in outputs:
+                    if not torch.isfinite(outputs[i]).all():
+                        print(f"Invalid {i} logits at step", training_step)
+                        found_inf = True
 
-            loss, loss_dict, kendall_weights = total_loss(outputs, batch)
+                loss, loss_dict, kendall_weights = total_loss(outputs, batch)
+                if not torch.isfinite(loss):
+                    print("Invalid global loss at step", training_step)
+                    found_inf = True
+                for i in loss_dict:
+                    if not torch.isfinite(loss_dict[i]).all():
+                        print(f"Invalid loss {i} at step", training_step)
+                        found_inf = True
 
             running_loss += loss.item()
+
             for k, v in loss_dict.items():
                 running_all_losses[k] += v.item()
+
+            if found_inf:
+                accum_counter = 0
+                running_loss = 0.0
+                running_all_losses = {name: 0.0 for name in total_loss.loss_names}
+                adam.zero_grad(set_to_none=True)
+                continue
+
             loss = loss / accumulation_steps
-            loss.backward()
+            scaler.scale(loss).backward()
+
+            """
+            for p in model.parameters():
+                if p.grad is not None and not torch.isfinite(p.grad).all():
+                    print("Invalid gradients at step", training_step)
+                    found_inf = True
+            """  # use only if training collapses
 
             accum_counter += 1
 
             if accum_counter == accumulation_steps:
-                adam.step()
+                scaler.unscale_(adam)
+                try:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        list(model.parameters()) + list(total_loss.parameters()),
+                        max_norm=1.0,
+                        error_if_nonfinite=False,  # if training collapses, return to True, currently it does not skip broken batches
+                    )
+                except RuntimeError as e:
+                    print("Gradient error:", e)
+                    print("Invalid gradients at step", training_step)
+
+                    accum_counter = 0
+                    running_loss = 0.0
+                    running_all_losses = {name: 0.0 for name in total_loss.loss_names}
+
+                    scaler.update()
+                    adam.zero_grad(set_to_none=True)
+                    continue
+                scaler.step(adam)
+                scaler.update()
                 adam.zero_grad(set_to_none=True)
 
                 effective_loss = running_loss / accumulation_steps
-                effective_losses = {
-                    k: v / accumulation_steps for k, v in running_all_losses.items()
-                }
+                effective_losses = {k: v / accumulation_steps for k, v in running_all_losses.items()}
 
                 ema_score = ema_decay * ema_score + (1 - ema_decay) * effective_loss
-                ema_scores = {
-                    k: v * ema_decay + (1 - ema_decay) * effective_losses[k]
-                    for k, v in ema_scores.items()
-                }
+                ema_scores = {k: v * ema_decay + (1 - ema_decay) * effective_losses[k] for k, v in ema_scores.items()}
                 pbar.update(1)
                 pbar.set_postfix(
                     {
@@ -565,21 +888,17 @@ if __name__ == "__main__":
                         epoch,
                         pbar.n,
                         f"{effective_loss:.4f}",
-                        *[
-                            f"{effective_losses[name]:.4f}"
-                            for name in total_loss.loss_names
-                        ],
+                        f"{ema_score:.4f}",
+                        *[f"{effective_losses[name]:.4f}" for name in total_loss.loss_names],
                         *[f"{ema_scores[name]:.4f}" for name in total_loss.loss_names],
-                        *[
-                            f"{kendall_weights[name]:.4f}"
-                            for name in total_loss.loss_names
-                        ],
+                        *[f"{kendall_weights[name]:.4f}" for name in total_loss.loss_names],
                     ]
                     f.write(",".join(map(str, row)) + "\n")
 
                 accum_counter = 0
                 running_loss = 0.0
                 running_all_losses = {name: 0.0 for name in total_loss.loss_names}
+                training_step += 1
 
         if accum_counter > 0:
             adam.step()
@@ -591,5 +910,24 @@ if __name__ == "__main__":
             pbar.set_postfix(
                 {
                     "loss": f"{effective_loss:.4f}",
+                    "ema_loss": f"{ema_score:.4f}",
                 }
             )
+        val_state = evaluate(model, val_set, device)
+        metrics = compute_metrics(val_state, epoch=epoch)
+
+        row = build_log_row(metrics, HEADERS)
+
+        with open(val_log_path, "a") as f:
+            f.write(",".join(map(str, row)) + "\n")
+
+        wandb.log(metrics, step=epoch)
+    test_state = evaluate(model, test_set, device)
+    test_metrics = compute_metrics(test_state)
+
+    row = build_log_row(metrics, HEADERS)
+
+    with open(test_log_path, "a") as f:
+        f.write(",".join(map(str, row)) + "\n")
+    wandb.log(metrics)
+    wandb.finish()
