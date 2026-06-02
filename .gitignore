@@ -222,5 +222,6 @@ data/resized_images/
 wandb/
 *.parquet
 *.pt
-losses.csv
 losses2.csv
+stats/losses.csv
+data/labels.parquet
