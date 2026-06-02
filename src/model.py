@@ -18,7 +18,7 @@ Dependencies:
 
 Usage:
     python -m src.model
-"""
+"""  # noqa: E501
 
 from typing import List, Tuple
 
@@ -249,7 +249,7 @@ def windowing(
         height_padding (int): height padding
     returns:
         Tuple[torch.Tensor, torch.Tensor]: tuple of the windowed tensor and the window mask
-    """
+    """  # noqa: E501
     B, C, H_pad, W_pad = x.shape
     device = x.device
     H = H_pad - height_padding
@@ -312,7 +312,7 @@ def windowing(
         window_size,
     )
 
-    # create validity mask that enables only valid patches, disabling padding from attending to other tokens and vice versa
+    # create validity mask that enables only valid patches, disabling padding from attending to other tokens and vice versa  # noqa: E501
     valid = mask.reshape(B, (H_pad // window_size) * (W_pad // window_size) * window_size * window_size)
     valid_windows = valid.view(B, -1, window_size * window_size)
     valid_mask = valid_windows[:, :, :, None] & valid_windows[:, :, None, :]
@@ -340,7 +340,7 @@ def unwindowing(
 
     Returns:
         torch.Tensor: Output tensor of shape (batch_size, channels, height, width)
-    """
+    """  # noqa: E501
     # x is of shape (B, num_windows, ws**2, C)
     # x should be in the end of size (B, C, H, W)
     B, num_windows, ws2, C = x.shape

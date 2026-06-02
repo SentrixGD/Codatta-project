@@ -1,3 +1,39 @@
+"""
+File: training_setup2.py
+
+Description:
+    Main file for training the model.
+
+Purpose:
+    To train the model, this file contains all the necessary components and the model class itself.
+
+Inputs:
+    - Resized images are stored in the /data/resized_images directory.
+    - Labels are stored in the /data/{train, val, test}_sorted_labels.parquet files.
+
+Outputs:
+    - Trained model checkpoints.
+    - Training logs.
+    - Confusion matrices.
+
+Dependencies:
+    - pandas
+    - PIL
+    - torch
+    - torchinfo
+    - torchviz
+    - torchvision
+    - tqdm
+    - wandb
+    - matplotlib
+    - sklearn
+    - numpy
+
+
+Usage:
+    python -m src.data_normalization
+"""  # noqa: E501
+
 import ast
 import json
 import math
@@ -5,12 +41,13 @@ import os
 from collections import defaultdict
 from typing import Callable, Dict, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from sklearn.metrics import f1_score
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
@@ -43,6 +80,15 @@ def load_image(image_id: str) -> torch.Tensor:
 
 
 def build_vocab(values):
+    """
+    Build a vocabulary from a list of values.
+
+    Args:
+        values (list): List of values to build the vocabulary from.
+
+    Returns:
+        tuple: A tuple containing the vocabulary and its inverse.
+    """
     unique = sorted(set(values))
     stoi = {v: i for i, v in enumerate(unique)}
     itos = {i: v for v, i in stoi.items()}
@@ -50,6 +96,15 @@ def build_vocab(values):
 
 
 def build_multilabel_vocab(column):
+    """
+    Build a vocabulary from a list of labels.
+
+    Args:
+        column (list): List of labels to build the vocabulary from.
+
+    Returns:
+        tuple: A tuple containing the vocabulary and its inverse.
+    """
     unique = set()
     for labels in column:
         unique.update(labels)  # flatten
@@ -97,6 +152,15 @@ class FoodDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
+        """
+        Get a sample from the dataset.
+
+        Args:
+            idx (int): Index of the sample.
+
+        Returns:
+            tuple: A tuple containing the image and the labels.
+        """
         row = self.df.iloc[idx]
 
         # --- image ---
@@ -172,6 +236,12 @@ class FoodDataset(Dataset):
 
 class LossCombiner(nn.Module):
     def __init__(self, losses: Dict[str, nn.Module]):
+        """
+        Loss combiner module.
+
+        Args:
+            losses (Dict[str, nn.Module]): Dictionary of loss modules.
+        """
         super().__init__()
 
         self.losses = losses
@@ -188,22 +258,7 @@ class LossCombiner(nn.Module):
         self.loss_sum = {name: 0.0 for name in self.loss_names}
         self.loss_counts = {name: 0 for name in self.loss_names}
 
-        self.tasks = {
-            "food_type": {"target": "food_type", "type": "cls"},
-            "ingredients": {"target": "ingredients", "type": "multi"},
-            "portion_presence": {"target": "portion_presence", "type": "multi"},
-            "cooking_method": {"target": "cooking_method", "type": "multi"},
-            "dish_name": {"target": "dish_name", "type": "cls"},
-            "portion_weight": {"target": "portion_weight", "type": "reg"},
-            "calories": {"target": "calories_kcal", "type": "reg"},
-            "fats": {"target": "fat_g", "type": "reg"},
-            "carbohydrates": {"target": "carbohydrate_g", "type": "reg"},
-            "proteins": {"target": "protein_g", "type": "reg"},
-            "binary": {
-                "target": ["food_prob", "camera_or_phone_prob"],
-                "type": "multi_bin",
-            },
-        }
+        self.tasks = {"food_type": {"target": "food_type", "type": "cls"}}
 
     def reset_means(self):
         self.loss_sum = {name: 0.0 for name in self.loss_names}
@@ -223,6 +278,16 @@ class LossCombiner(nn.Module):
         self.phase = "kendall"
 
     def forward(self, outputs, targets):
+        """
+        Forward pass.
+
+        Args:
+            outputs (Dict[str, torch.Tensor]): Dictionary of output tensors.
+            targets (Dict[str, torch.Tensor]): Dictionary of target tensors.
+
+        Returns:
+            torch.Tensor: Total loss.
+        """
         total_loss = 0.0
         loss_dict = {}
         raw_loss_dict = {}
@@ -274,6 +339,15 @@ class LossCombiner(nn.Module):
 
 class AsymmetricLoss(nn.Module):
     def __init__(self, class_weights=None, gamma_neg=4, gamma_pos=1, clip=0.05):
+        """
+        Asymmetric loss.
+
+        Args:
+            class_weights (torch.Tensor, optional): Class weights. Defaults to None.
+            gamma_neg (float, optional): Gamma value for negative examples. Defaults to 4.
+            gamma_pos (float, optional): Gamma value for positive examples. Defaults to 1.
+            clip (float, optional): Clip value. Defaults to 0.05.
+        """
         super().__init__()
         self.class_weights = class_weights  # shape [C] or None
         self.gamma_neg = gamma_neg
@@ -281,6 +355,16 @@ class AsymmetricLoss(nn.Module):
         self.clip = clip
 
     def forward(self, logits, targets):
+        """
+        Forward pass.
+
+        Args:
+            logits (torch.Tensor): Logits tensor.
+            targets (torch.Tensor): Target tensor.
+
+        Returns:
+            torch.Tensor: Loss tensor.
+        """
         probs = torch.sigmoid(logits)
 
         pos = targets
@@ -308,6 +392,16 @@ def encode_single(label, vocab):
 
 
 def encode_multilabel(labels, vocab):
+    """
+    Encode a list of labels into a tensor of 0s and 1s.
+
+    Args:
+        labels (list): List of labels.
+        vocab (dict): Vocabulary dictionary.
+
+    Returns:
+        torch.Tensor: Tensor of 0s and 1s.
+    """
     vec = torch.zeros(len(vocab), dtype=torch.float32)
     for label in labels:
         if label in vocab:
@@ -316,6 +410,16 @@ def encode_multilabel(labels, vocab):
 
 
 def encode_portion(portion_list, vocab):
+    """
+    Encode a portion list into a tensor of 0s and 1s.
+
+    Args:
+        portion_list (list): List of (name, weight) tuples.
+        vocab (dict): Vocabulary dictionary.
+
+    Returns:
+        torch.Tensor: Tensor of 0s and 1s.
+    """
     presence = torch.zeros(len(vocab), dtype=torch.float32)
     weight = torch.zeros(len(vocab), dtype=torch.float32)
     for name, w in portion_list:
@@ -328,6 +432,17 @@ def encode_portion(portion_list, vocab):
 
 
 def build_class_weights(file_name: str, vocab: Dict[str, int], ignore_class: str = None):
+    """
+    Build class weights.
+
+    Args:
+        file_name (str): File name.
+        vocab (dict): Vocabulary dictionary.
+        ignore_class (str, optional): Class to ignore. Defaults to None.
+
+    Returns:
+        torch.Tensor: Class weights tensor.
+    """
     df = pd.read_csv(os.path.join(ROOT_DIR, "stats", "data", file_name))
 
     key_col = df.columns[0]
@@ -337,7 +452,7 @@ def build_class_weights(file_name: str, vocab: Dict[str, int], ignore_class: str
 
     weights = 1 / np.sqrt(counts)
     weights = weights / weights.mean()
-    weights = np.clip(weights, 0.3, 3.0)
+    weights = np.clip(weights, 0.2, 5.0)
 
     df["weight"] = weights
 
@@ -354,6 +469,15 @@ def build_class_weights(file_name: str, vocab: Dict[str, int], ignore_class: str
 
 
 def collate_fn(batch):
+    """
+    Collate function for the dataset.
+
+    Args:
+        batch (list): Batch of data.
+
+    Returns:
+        dict: Collated data.
+    """
     images = [item["image"] for item in batch]
 
     # get max size
@@ -393,6 +517,18 @@ def stress_test(
     height: int = 448,
     width: int = 672,
 ):
+    """
+    Stress test the model.
+
+    Args:
+        model (SwinModel): Model to test.
+        total_loss (LossCombiner): Loss combiner.
+        optimizer (torch.optim.Optimizer): Optimizer.
+        device (torch.device): Device to run on.
+        batch_size (int, optional): Batch size. Defaults to 2.
+        height (int, optional): Image height. Defaults to 448.
+        width (int, optional): Image width. Defaults to 672.
+    """
     model.train()
 
     print(f"Testing batch={batch_size}, resolution={height}x{width}")
@@ -456,9 +592,8 @@ def stress_test(
 
     optimizer.zero_grad(set_to_none=True)
 
-    with torch.amp.autocast("cuda", dtype=torch.float16):
-        outputs = model(dummy_batch["image"])
-        loss, _, _, _ = total_loss(outputs, dummy_batch)
+    outputs = model(dummy_batch["image"])
+    loss, _, _, _ = total_loss(outputs, dummy_batch)
 
     loss.backward()
 
@@ -478,7 +613,18 @@ def val_single_class(
     name: str,
     topk: int,
 ) -> Tuple[int, int, int]:
+    """
+    Validate a single class.
 
+    Args:
+        outputs (Dict[str, torch.Tensor]): Dictionary of output tensors.
+        batch (Dict[str, torch.Tensor]): Dictionary of target tensors.
+        name (str): Name of the class.
+        topk (int): Top k accuracy.
+
+    Returns:
+        Tuple[int, int, int]: Correct, total, correctk.
+    """
     logits = outputs[f"{name}_logits"]
     target = batch[name]
 
@@ -502,6 +648,18 @@ def val_regression(
     name: str,
     data_name: str,
 ) -> Tuple[float, int]:
+    """
+    Validate a regression task.
+
+    Args:
+        outputs (Dict[str, torch.Tensor]): Dictionary of output tensors.
+        batch (Dict[str, torch.Tensor]): Dictionary of target tensors.
+        name (str): Name of the task.
+        data_name (str): Name of the data.
+
+    Returns:
+        Tuple[float, int]: MAE, count.
+    """
     prediction = outputs[f"{name}_logits"].squeeze(1)
 
     target = batch[f"{data_name}"]
@@ -519,6 +677,18 @@ def val_binary_prob(
     logit_idx: int,
     target_name: str,
 ) -> Tuple[float, int]:
+    """
+    Validate a binary probability task.
+
+    Args:
+        outputs (Dict[str, torch.Tensor]): Dictionary of output tensors.
+        batch (Dict[str, torch.Tensor]): Dictionary of target tensors.
+        logit_idx (int): Index of the logit to use.
+        target_name (str): Name of the target.
+
+    Returns:
+        Tuple[float, int]: MAE, count.
+    """
 
     prediction = torch.sigmoid(outputs["binary_logits"][:, logit_idx])
 
@@ -532,6 +702,16 @@ def val_binary_prob(
 
 
 def build_log_row(metrics: dict, headers: list[str]):
+    """
+    Build a log row for a CSV file.
+
+    Args:
+        metrics (dict): Dictionary of metrics.
+        headers (list[str]): List of headers.
+
+    Returns:
+        list: List of values.
+    """
     row = []
     for h in headers:
         if h not in metrics:
@@ -541,24 +721,25 @@ def build_log_row(metrics: dict, headers: list[str]):
 
 
 def evaluate(model, dataloader, device):
+    """
+    Evaluate a model.
+
+    Args:
+        model (nn.Module): Model to evaluate.
+        dataloader (DataLoader): DataLoader to use.
+        device (torch.device): Device to use.
+
+    Returns:
+        dict: Dictionary of metrics.
+    """
     model.eval()
 
-    val_losses = {name: 0.0 for name in total_loss.loss_names}
     val_total_loss = 0.0
     val_batches = 0
 
     cls_correct = defaultdict(int)
     cls_total = defaultdict(int)
     cls_topk_correct = defaultdict(int)
-
-    multilabel_preds = {name: [] for name in MULTILABEL_TASKS}
-    multilabel_targets = {name: [] for name in MULTILABEL_TASKS}
-
-    regression_mae_sum = {name: 0.0 for name in REGRESSION_METRICS}
-    regression_count = {name: 0 for name in REGRESSION_METRICS}
-
-    portion_weight_abs_sum = 0.0
-    portion_weight_count = 0
 
     with torch.no_grad():
         for batch in dataloader:
@@ -570,112 +751,144 @@ def evaluate(model, dataloader, device):
 
             val_total_loss += loss.item()
 
-            for k, v in loss_dict.items():
-                val_losses[k] += v.item()
-
             val_batches += 1
 
-            # classification
-            for name, topk in CLASSIFICATION_TASKS:
-                correct, total, correctk = val_single_class(outputs, batch, name, topk)
-
-                cls_correct[name] += correct
-                cls_total[name] += total
-                cls_topk_correct[name] += correctk
-
-            # regression
-            for task_name, target_name in REGRESSION_TASKS:
-                mae_sum, count = val_regression(outputs, batch, task_name, target_name)
-                regression_mae_sum[task_name] += mae_sum
-                regression_count[task_name] += count
-
-            # multilabel
-            for name in MULTILABEL_TASKS:
-                pred = (torch.sigmoid(outputs[f"{name}_logits"]) > 0.5).cpu()
-                target = batch[name].cpu()
-
-                multilabel_preds[name].append(pred)
-                multilabel_targets[name].append(target)
-
-            for logit_idx, target_name, metric_name in BINARY_PROB_TASKS:
-                mae_sum, count = val_binary_prob(outputs, batch, logit_idx, target_name)
-
-                regression_mae_sum[metric_name] += mae_sum
-                regression_count[metric_name] += count
-
-            # custom
-            pred = outputs["portion_weight_logits"]
-            target = batch["portion_weight"]
-            mask = batch["portion_presence"].bool()
-
-            portion_weight_abs_sum += torch.abs(pred[mask] - target[mask]).sum().item()
-            portion_weight_count += mask.sum().item()
-
-    ingredients_pred = torch.cat(multilabel_preds["ingredients"])
-    ingredients_target = torch.cat(multilabel_targets["ingredients"])
-
-    print("pred positives:", ingredients_pred.sum())
-    print("target positives:", ingredients_target.sum())
-
-    print("pred unique:", torch.unique(ingredients_pred))
-    print("target unique:", torch.unique(ingredients_target))
+            correct, total, correctk = val_single_class(outputs, batch, "food_type", 5)
+            cls_correct["food_type"] += correct
+            cls_total["food_type"] += total
+            cls_topk_correct["food_type"] += correctk
     return {
-        "val_losses": val_losses,
         "val_total_loss": val_total_loss,
         "val_batches": val_batches,
         "cls_correct": cls_correct,
         "cls_total": cls_total,
         "cls_topk_correct": cls_topk_correct,
-        "multilabel_preds": multilabel_preds,
-        "multilabel_targets": multilabel_targets,
-        "regression_mae_sum": regression_mae_sum,
-        "regression_count": regression_count,
-        "portion_weight_abs_sum": portion_weight_abs_sum,
-        "portion_weight_count": portion_weight_count,
     }
+
+
+def make_confusion_matrix(model, dataloader, device):
+    """
+    Make a confusion matrix.
+
+    Args:
+        model (nn.Module): Model to evaluate.
+        dataloader (DataLoader): DataLoader to use.
+        device (torch.device): Device to use.
+
+    Returns:
+        None
+    """
+    model.eval()
+
+    y_true = []
+    y_pred = []
+
+    with torch.no_grad():
+        for batch in dataloader:
+            batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
+
+            outputs = model(batch["image"])["food_type_logits"]
+            preds = outputs.argmax(dim=1)
+
+            y_pred.extend(preds.cpu().numpy())
+            y_true.extend(batch["food_type"].cpu().numpy())
+
+    # Explicit class ordering
+    labels = [0, 4, 3, 2, 1]
+
+    class_names = [
+        "Homemade food",
+        "Restaurant food",
+        "Raw vegetables and fruits",
+        "Packaged food",
+        "Others",
+    ]
+
+    cm = confusion_matrix(
+        y_true,
+        y_pred,
+        labels=labels,
+    )
+
+    save_dir = os.path.join(ROOT_DIR, "stats", "results")
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Save CSV
+    cm_df = pd.DataFrame(
+        cm,
+        index=class_names,
+        columns=class_names,
+    )
+
+    csv_path = os.path.join(
+        save_dir,
+        "food_type_confusion_matrix.csv",
+    )
+    cm_df.to_csv(csv_path)
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    disp = ConfusionMatrixDisplay(
+        confusion_matrix=cm,
+        display_labels=class_names,
+    )
+
+    disp.plot(
+        ax=ax,
+        cmap="Blues",
+        colorbar=False,
+        xticks_rotation=30,
+    )
+
+    ax.set_title(
+        "Food Type Test Confusion Matrix",
+        fontsize=16,
+        pad=20,
+    )
+
+    plt.tight_layout()
+
+    image_path = os.path.join(
+        save_dir,
+        "food_type_confusion_matrix.png",
+    )
+
+    plt.savefig(
+        image_path,
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close(fig)
+
+    return cm
 
 
 def compute_metrics(state, model_name, epoch=None):
-    val_losses = {k: v / state["val_batches"] for k, v in state["val_losses"].items()}
+    """
+    Compute metrics.
+
+    Args:
+        state (dict): Dictionary of metrics.
+        model_name (str): Name of the model.
+        epoch (int): Epoch number.
+
+    Returns:
+        dict: Dictionary of metrics.
+    """
 
     val_total_loss = state["val_total_loss"] / state["val_batches"]
 
-    classification_metrics = {}
+    food_type_acc = state["cls_correct"]["food_type"] / max(state["cls_total"]["food_type"], 1)
 
-    for name, topk in CLASSIFICATION_TASKS:
-        classification_metrics[f"{name}_acc"] = state["cls_correct"][name] / max(state["cls_total"][name], 1)
-
-        if topk > 1:
-            classification_metrics[f"{name}_top{topk}_acc"] = state["cls_topk_correct"][name] / max(
-                state["cls_total"][name], 1
-            )
-
-    regression_metrics = {
-        f"{name}_mae": state["regression_mae_sum"][name] / state["regression_count"][name]
-        for name in REGRESSION_METRICS
-    }
-
-    ingredients_pred = torch.cat(state["multilabel_preds"]["ingredients"]).cpu().numpy()
-    ingredients_target = torch.cat(state["multilabel_targets"]["ingredients"]).cpu().numpy()
-
-    print(ingredients_pred, ingredients_target)
-
-    multilabel_metrics = {
-        "ingredients_micro_f1": f1_score(ingredients_target, ingredients_pred, average="micro"),
-        "ingredients_macro_f1": f1_score(ingredients_target, ingredients_pred, average="macro"),
-    }
-
-    portion_weight_mae = state["portion_weight_abs_sum"] / max(state["portion_weight_count"], 1)
+    food_type_top5_acc = state["cls_topk_correct"]["food_type"] / max(state["cls_total"]["food_type"], 1)
 
     metrics = {
         "epoch": epoch,
         "model_name": model_name,
         "total_loss": val_total_loss,
-        **{f"loss_{k}": v for k, v in val_losses.items()},
-        **classification_metrics,
-        **regression_metrics,
-        **multilabel_metrics,
-        "portion_weight_mae": portion_weight_mae,
+        "food_type_acc": food_type_acc,
+        "food_type_top5_acc": food_type_top5_acc,
     }
 
     return metrics
@@ -692,6 +905,23 @@ def save_checkpoint(
     scheduler,
     scaler,
 ):
+    """
+    Save checkpoint.
+
+    Args:
+        path (str): Path to save checkpoint.
+        epoch (int): Epoch number.
+        training_step (int): Training step number.
+        model (nn.Module): Model to save.
+        total_loss (LossCombiner): Total loss.
+        model_optimizer (Optimizer): Model optimizer.
+        weight_optimizer (Optimizer): Weight optimizer.
+        scheduler (Scheduler): Scheduler.
+        scaler (GradScaler): Grad scaler.
+
+    Returns:
+        None
+    """
     checkpoint = {
         "epoch": epoch,
         "training_step": training_step,
@@ -711,38 +941,14 @@ def save_checkpoint(
 
 
 if __name__ == "__main__":
-    model_name = "base"  # later change to argparse
-    CLASSIFICATION_TASKS = [
-        ("food_type", 1),
-        ("dish_name", 5),
-    ]
+    # ------------------------
+    # Loading data
+    # ------------------------
 
-    MULTILABEL_TASKS = [
-        "ingredients",
-        "portion_presence",
-        "cooking_method",
-    ]
-
-    REGRESSION_TASKS = [
-        ("calories", "calories_kcal"),
-        ("fats", "fat_g"),
-        ("carbohydrates", "carbohydrate_g"),
-        ("proteins", "protein_g"),
-    ]
-
-    BINARY_PROB_TASKS = [
-        (0, "camera_or_phone_prob", "camera_or_phone"),
-        (1, "food_prob", "food"),
-    ]
-
-    REGRESSION_METRICS = [
-        "calories",
-        "fats",
-        "carbohydrates",
-        "proteins",
-        "camera_or_phone",
-        "food",
-    ]
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    DATA_DIR = os.path.join(ROOT_DIR, "data")
+    model_name = "single"
+    REGRESSION_METRICS = ["calories"]
 
     train = pd.read_parquet(os.path.join(DATA_DIR, "train_labels_sorted.parquet"))
     val = pd.read_parquet(os.path.join(DATA_DIR, "val_labels_sorted.parquet"))
@@ -800,13 +1006,17 @@ if __name__ == "__main__":
         regression_norms,
     )
 
+    # ------------------------
+    # Loading model
+    # ------------------------
+
     device = torch.device("cuda")
 
-    x = torch.randn(2, 3, 448, 672, device=device)
+    x = torch.randn(2, 3, 224, math.ceil(224 * 4.833753148614609), device=device)
 
     model = SwinModel(
         heads_ratio=16,
-        dim=48,
+        dim=64,
         dropout_mha=0,
         dropout_swin_mlp=0,
         dropout_outer=0,
@@ -839,7 +1049,11 @@ if __name__ == "__main__":
     dot = make_dot(out, params=dict(model.named_parameters()))
     dot.render("model_graph", format="pdf")
 
-    epochs = 30
+    # ------------------------
+    # Training setup
+    # ------------------------
+
+    epochs = 15
     effective_batch_size = 32
     micro_batch_size = 2
     steps_per_epoch = train.shape[0] // effective_batch_size
@@ -860,45 +1074,14 @@ if __name__ == "__main__":
     cooking_method_weights = cooking_method_weights.to(device)
     portion_ingredient_weights = portion_ingredient_weights.to(device)
 
-    loss_dictionary = {
-        "food_type": nn.CrossEntropyLoss(label_smoothing=0.05, weight=food_type_weights),  # single-label
-        "ingredients": AsymmetricLoss(class_weights=ingredient_weights, gamma_neg=4, gamma_pos=0.5),  # multi-label
-        "portion_presence": nn.BCEWithLogitsLoss(pos_weight=portion_ingredient_weights),  # multi-label
-        "cooking_method": nn.BCEWithLogitsLoss(pos_weight=cooking_method_weights),  # multi-label
-        "dish_name": nn.CrossEntropyLoss(label_smoothing=0.05, weight=dish_name_weights),  # single-label
-        "portion_weight": nn.HuberLoss(),  # vector regression
-        "calories": nn.HuberLoss(),
-        "fats": nn.HuberLoss(),
-        "carbohydrates": nn.HuberLoss(),
-        "proteins": nn.HuberLoss(),
-        "binary": nn.BCEWithLogitsLoss(),  # binary classification
-    }
+    loss_dictionary = {"food_type": nn.CrossEntropyLoss(weight=food_type_weights)}
+    print(food_type_weights)
 
     total_loss = LossCombiner(losses=loss_dictionary)
 
     METRIC_SCHEMA = {
         "meta": ["epoch", "model_name", "total_loss"],
-        "loss": [f"loss_{name}" for name in total_loss.loss_names],
-        "classification": [
-            "food_type_acc",
-            "dish_name_acc",
-            "dish_name_top5_acc",
-        ],
-        "regression": [
-            "calories_mae",
-            "fats_mae",
-            "carbohydrates_mae",
-            "proteins_mae",
-            "camera_or_phone_mae",
-            "food_mae",
-        ],
-        "multilabel": [
-            "ingredients_micro_f1",
-            "ingredients_macro_f1",
-        ],
-        "custom": [
-            "portion_weight_mae",
-        ],
+        "classification": ["food_type_acc"],
     }
     HEADERS = sum(METRIC_SCHEMA.values(), [])
 
@@ -906,17 +1089,12 @@ if __name__ == "__main__":
     val_set = DataLoader(val_dataset, batch_size=micro_batch_size, collate_fn=collate_fn)
     test_set = DataLoader(test_dataset, batch_size=micro_batch_size, collate_fn=collate_fn)
 
-    log_path = os.path.join(ROOT_DIR, "stats", "losses.csv")
-    checkpoint_path = os.path.join(os.path.dirname(log_path), "checkpoint.pt")
+    log_path = os.path.join(ROOT_DIR, "stats", "losses2.csv")
+    checkpoint_path = os.path.join(os.path.dirname(log_path), "checkpoint2.pt")
 
     if not os.path.exists(log_path):
         with open(log_path, "w") as f:
-            headers = (
-                ["epoch", "step", "total_loss", "ema_moving_loss"]
-                + list(total_loss.loss_names)
-                + [f"{name}_w" for name in total_loss.loss_names]
-                + [f"{name}_final" for name in total_loss.loss_names]
-            )
+            headers = ["epoch", "step", "total_loss", "ema_moving_loss"]
             f.write(",".join(headers) + "\n")
 
     val_log_path = os.path.join(ROOT_DIR, "stats", "validation_log.csv")
@@ -951,8 +1129,8 @@ if __name__ == "__main__":
         model_optimizer,
         device,
         batch_size=2,
-        height=448,
-        width=int(448 * 3),
+        height=224,
+        width=math.ceil(224 * 4.833753148614609),
     )
 
     assert effective_batch_size % micro_batch_size == 0, (
@@ -961,6 +1139,10 @@ if __name__ == "__main__":
     accumulation_steps = effective_batch_size // micro_batch_size
     training_step = 0
     start_epoch = 0
+
+    # ------------------------
+    # Resume training
+    # ------------------------
 
     if os.path.exists(checkpoint_path):
         print(f"Loading checkpoint: {checkpoint_path}")
@@ -999,6 +1181,10 @@ if __name__ == "__main__":
 
         print(f"Resuming from epoch={start_epoch}, training_step={training_step}")
 
+    # ------------------------
+    # Training loop
+    # ------------------------
+
     for epoch in range(start_epoch, epochs):
         model.train()
         model_optimizer.zero_grad(set_to_none=True)
@@ -1009,35 +1195,34 @@ if __name__ == "__main__":
         )
         accum_counter = 0
         running_loss = 0.0
-        running_all_losses = {name: 0.0 for name in total_loss.loss_names}
 
         ema_score = 0.0
-        ema_scores = {name: 0.0 for name in total_loss.loss_names}
 
         for batch in train_set:
+            # ------------------------
+            # Forward pass
+            # ------------------------
+
             found_inf = False
             batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
 
-            with torch.amp.autocast("cuda", dtype=torch.float16):
-                outputs = model(batch["image"])
-                for i in outputs:
-                    if not torch.isfinite(outputs[i]).all():
-                        print(f"Invalid {i} logits at step", training_step)
-                        found_inf = True
-
-                loss, loss_dict, raw_loss_dict, kendall_weights = total_loss(outputs, batch)
-                if not torch.isfinite(loss):
-                    print("Invalid global loss at step", training_step)
+            # with torch.amp.autocast("cuda", dtype=torch.float16):
+            outputs = model(batch["image"])
+            for i in outputs:
+                if not torch.isfinite(outputs[i]).all():
+                    print(f"Invalid {i} logits at step", training_step)
                     found_inf = True
-                for i in loss_dict:
-                    if not torch.isfinite(loss_dict[i]).all():
-                        print(f"Invalid loss {i} at step", training_step)
-                        found_inf = True
+
+            loss = loss_dictionary["food_type"](outputs["food_type_logits"], batch["food_type"])
+            if not torch.isfinite(loss):
+                print("Invalid global loss at step", training_step)
+                found_inf = True
 
             running_loss += loss.item()
 
-            for k, v in loss_dict.items():
-                running_all_losses[k] += v.item()
+            # ------------------------
+            # Backward pass with safeguard
+            # ------------------------
 
             if found_inf:
                 accum_counter = 0
@@ -1048,7 +1233,7 @@ if __name__ == "__main__":
                 continue
 
             loss = loss / accumulation_steps
-            scaler.scale(loss).backward()
+            loss.backward()
             """
             for p in model.parameters():
                 if p.grad is not None and not torch.isfinite(p.grad).all():
@@ -1059,7 +1244,10 @@ if __name__ == "__main__":
             accum_counter += 1
 
             if accum_counter == accumulation_steps:
-                scaler.unscale_(model_optimizer)
+                # ------------------------
+                # Update weights
+                # ------------------------
+
                 try:
                     grad_norm = torch.nn.utils.clip_grad_norm_(
                         list(model.parameters()),
@@ -1074,30 +1262,19 @@ if __name__ == "__main__":
                     else:
                         accum_counter = 0
                         running_loss = 0.0
-                        running_all_losses = {name: 0.0 for name in total_loss.loss_names}
 
                         scaler.update()
                         model_optimizer.zero_grad(set_to_none=True)
                         continue
-                scaler.step(model_optimizer)
-                scaler.update()
+                model_optimizer.step()
                 weight_optimizer.step()
                 scheduler.step()
                 weight_optimizer.zero_grad(set_to_none=True)
                 model_optimizer.zero_grad(set_to_none=True)
 
                 effective_loss = running_loss / accumulation_steps
-                effective_losses = {k: v / accumulation_steps for k, v in running_all_losses.items()}
 
                 ema_score = ema_decay * ema_score + (1 - ema_decay) * effective_loss
-                ema_scores = {k: v * ema_decay + (1 - ema_decay) * effective_losses[k] for k, v in ema_scores.items()}
-
-                if training_step == 100:
-                    total_loss.reset_means()
-                if training_step == 200:
-                    total_loss.set_mean_phase()
-                if training_step == 300:
-                    total_loss.set_kendall_phase()
 
                 pbar.update(1)
                 pbar.set_postfix(
@@ -1114,9 +1291,6 @@ if __name__ == "__main__":
                         pbar.n,
                         f"{effective_loss:.4f}",
                         f"{ema_score:.4f}",
-                        *[f"{raw_loss_dict[name]:.4f}" for name in total_loss.loss_names],
-                        *[f"{kendall_weights[name]:.4f}" for name in total_loss.loss_names],
-                        *[f"{(effective_losses[name]):.4f}" for name in total_loss.loss_names],
                     ]
                     f.write(",".join(map(str, row)) + "\n")
 
@@ -1139,6 +1313,11 @@ if __name__ == "__main__":
                     "lr": scheduler.get_last_lr()[0],
                 }
             )
+
+        # ------------------------
+        # Validation and checkpoint
+        # ------------------------
+
         val_state = evaluate(model, val_set, device)
         metrics = compute_metrics(val_state, model_name=model_name, epoch=epoch)
         print(metrics, HEADERS)
@@ -1160,14 +1339,13 @@ if __name__ == "__main__":
             f.write(",".join(map(str, row)) + "\n")
 
         wandb.log(metrics, step=epoch)
-    test_state = evaluate(model, test_set, device)
-    test_metrics = compute_metrics(test_state, model_name=model_name)
+    # test_state = evaluate(model, test_set, device)
+    # test_metrics = compute_metrics(test_state, model_name=model_name)
+    print(make_confusion_matrix(model, test_set, device))
 
-    row = build_log_row(test_metrics, HEADERS)
+    # row = build_log_row(test_metrics, HEADERS)
 
-    with open(test_log_path, "a") as f:
-        f.write(",".join(map(str, row)) + "\n")
-    wandb.log(metrics)
+    # with open(test_log_path, "a") as f:
+    #    f.write(",".join(map(str, row)) + "\n")
+    # wandb.log(test_metrics)
     wandb.finish()
-
-# make loss * loss weight instead of ema in log file

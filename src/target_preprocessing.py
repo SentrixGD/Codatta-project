@@ -24,7 +24,7 @@ Dependencies:
 
 Usage:
     python -m src.target_preprocessing
-"""
+"""  # noqa: E501
 
 import json
 import os
@@ -73,7 +73,7 @@ class ImageDataset(Dataset):
 
         Returns:
             Tuple[torch.Tensor, Dict[str, Any], int, int, int, str]: Resized image, metadata, index, width, height, filename
-        """
+        """  # noqa: E501
         row = self.rows[idx]
 
         img_path = os.path.join(self.image_dir, self.image_files[idx])
@@ -89,7 +89,7 @@ class ImageDataset(Dataset):
             scale = self.resize / min(image_height, image_width)
             new_h = int(round(image_height * scale / patch) * patch)
             new_w = int(round(image_width * scale / patch) * patch)
-            max_ratio = 3.0
+            max_ratio = 5.0
             if new_h > new_w * max_ratio:
                 new_h = int(round((new_w * max_ratio) / patch) * patch)
             elif new_w > new_h * max_ratio:
@@ -146,7 +146,7 @@ def collate_fn(
             - heights (tuple[int]): Original image heights
             - widths (tuple[int]): Original image widths
             - image_paths (tuple[str]): Paths to saved images
-    """
+    """  # noqa: E501
     images, samples, idxs, heights, widths, image_paths = zip(*batch)
     return images, samples, torch.tensor(idxs), heights, widths, image_paths
 
@@ -183,7 +183,7 @@ def normalize_methods(text: str) -> List[Set[str]]:
 
     Returns:
         - List[Set[str]]: List of normalized cooking methods
-    """
+    """  # noqa: E501
     # case 1: NaN
     if text is None or (isinstance(text, float) and pd.isna(text)):
         return ["unknown"]
@@ -392,7 +392,7 @@ if __name__ == "__main__":
     dataset = ImageDataset(
         image_dir=OLD_IMG_DIR,
         parquet_path=os.path.join(DATA_DIR, "labels.parquet"),
-        resize=448,
+        resize=224,
     )
     loader = DataLoader(
         dataset,

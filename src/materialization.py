@@ -22,7 +22,7 @@ Dependencies:
 
 Usage:
     python -m src.materialization
-"""
+"""  # noqa: E501
 
 import os
 import threading

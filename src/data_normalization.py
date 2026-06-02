@@ -20,7 +20,7 @@ Dependencies:
 
 Usage:
     python -m src.data_normalization
-"""
+"""  # noqa: E501
 
 import os
 
@@ -38,7 +38,7 @@ if __name__ == "__main__":
             path = os.path.join(DATA_DIR, "resized_images", row.image_path)
             with Image.open(path) as img:
                 w, h = img.size
-            # Split images by aspect ratio orientation to group similar shapes together (used to reduce padding variance in batching)
+            # Split images by aspect ratio orientation to group similar shapes together (used to reduce padding variance in batching)  # noqa: E501
             if w < h:
                 stretched_h.append({"w": w, "h": h, "path": row.image_path})
             else:

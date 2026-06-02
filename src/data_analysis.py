@@ -115,7 +115,7 @@ def collate_fn(
             - images (tuple[Tensor]): Batch of image tensors
             - samples (tuple[dict]): Batch of metadata dictionaries
             - idxs (Tensor): Sample indices
-    """
+    """  # noqa: E501
     images, samples, idxs = zip(*batch)
     return images, samples, torch.tensor(idxs)
 
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     os.makedirs(os.path.join(ROOT_DIR, "stats", "data"), exist_ok=True)
     dataset = ImageDataset(
         image_dir=os.path.join(DATA_DIR, "resized_images"),
-        parquet_path=os.path.join(DATA_DIR, "train_labels.parquet"),
+        parquet_path=os.path.join(DATA_DIR, "labels_processed.parquet"),
     )
     loader = DataLoader(
         dataset,
@@ -741,5 +741,46 @@ if __name__ == "__main__":
             },
             f,
         )
+
+    # ----------------------------
+    # IMAGE CORRELATION
+    # ----------------------------
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    im = ax.imshow(corr, cmap="coolwarm", vmin=-1, vmax=1)
+
+    # Axis labels
+    ax.set_xticks(np.arange(len(corr.columns)))
+    ax.set_yticks(np.arange(len(corr.columns)))
+
+    ax.set_xticklabels(corr.columns, rotation=45, ha="right")
+    ax.set_yticklabels(corr.columns)
+
+    # Write correlation values into cells
+    for i in range(len(corr)):
+        for j in range(len(corr)):
+            ax.text(
+                j,
+                i,
+                f"{corr.iloc[i, j]:.2f}",
+                ha="center",
+                va="center",
+                fontsize=8,
+            )
+
+    # Colorbar
+    cbar = fig.colorbar(im)
+    cbar.set_label("Correlation")
+
+    ax.set_title("Feature Correlation Matrix")
+
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(ROOT_DIR, "stats", "data", "image_correlation_heatmap.png"),
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close()
 
     print("Done!")
