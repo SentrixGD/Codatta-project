@@ -14,12 +14,12 @@ from sklearn.metrics import f1_score
 from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.tensorboard import SummaryWriter
 from torchinfo import summary
 from torchvision import transforms
 from torchviz import make_dot
 from tqdm import tqdm
 
-import wandb
 from src.model import SwinModel, init_weights
 
 LossType = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -27,7 +27,7 @@ LossType = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 
-wandb.init(project="your_project", mode="online")
+writer = SummaryWriter(log_dir=os.path.join(ROOT_DIR, "runs"))
 
 
 def normalize(s):
@@ -802,8 +802,6 @@ if __name__ == "__main__":
 
     device = torch.device("cuda")
 
-    x = torch.randn(2, 3, 448, 672, device=device)
-
     model = SwinModel(
         heads_ratio=16,
         dim=48,
@@ -815,7 +813,7 @@ if __name__ == "__main__":
         droppath=0.1,
         window_size=7,
         input_channels=3,
-        depths=[2, 2, 18, 2],
+        depths=[2, 2, 14, 2],
         stage_num=4,
         shared_mlp_size=1024,
         ingredients_mlp_size=768,
@@ -829,6 +827,8 @@ if __name__ == "__main__":
         binary_classes=2,
     ).to(device)
     model.apply(init_weights)
+
+    x = torch.randn(1, 3, 448, 672, device=device)
     out = model(x)
     for i in out:
         print(i, out[i].shape)
@@ -836,8 +836,14 @@ if __name__ == "__main__":
     summary(model, input_size=x.shape)
     y = model(x)
     out = sum(v.sum() for v in y.values())
-    dot = make_dot(out, params=dict(model.named_parameters()))
-    dot.render("model_graph", format="pdf")
+    try:
+        dot = make_dot(out, params=dict(model.named_parameters()))
+        dot.render("model_graph", format="pdf")
+    except Exception as e:
+        print(f"Skipping graph rendering: {e}")
+
+    del x, y, out
+    torch.cuda.empty_cache()
 
     epochs = 30
     effective_batch_size = 32
@@ -1159,7 +1165,8 @@ if __name__ == "__main__":
         with open(val_log_path, "a") as f:
             f.write(",".join(map(str, row)) + "\n")
 
-        wandb.log(metrics, step=epoch)
+        for key, val in metrics.items():
+            writer.add_scalar(key, val, epoch)
     test_state = evaluate(model, test_set, device)
     test_metrics = compute_metrics(test_state, model_name=model_name)
 
@@ -1167,7 +1174,8 @@ if __name__ == "__main__":
 
     with open(test_log_path, "a") as f:
         f.write(",".join(map(str, row)) + "\n")
-    wandb.log(metrics)
-    wandb.finish()
+    for key, val in metrics.items():
+        writer.add_scalar(f"test/{key}", val, epoch)
+    writer.close()
 
 # make loss * loss weight instead of ema in log file

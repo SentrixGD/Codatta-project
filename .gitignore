@@ -225,3 +225,18 @@ wandb/
 losses2.csv
 stats/losses.csv
 data/labels.parquet
+
+# Training outputs
+runs/
+stats/losses_finetune.csv
+stats/val_reports_finetune/
+
+# Generated files
+model_graph
+model_graph.pdf
+
+# Data (63GB)
+data/
+
+# Config
+config/

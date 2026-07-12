@@ -1,147 +1,141 @@
-dish_name,count
-vegetables,15137
-spices,12274
-sauce,11827
+ingredient,count
+vegetable,15081
+spice,12231
+sauce,12225
+green onion,12021
 noodles,11618
-green onions,11496
-other,10741
 chicken,10568
-meat,9509
-rice,9305
-sugar,8032
+other,10432
+egg,9779
+meat,9508
+rice,9304
+sugar,8033
 beef,7472
 soy sauce,6929
 broth,6665
-egg,5873
-shrimp,5690
+shrimp,5689
 garlic,5639
 oil,5491
-flour,5302
+flour,5301
+onion,5172
+carrot,4712
 pork,4561
-carrots,4288
-seasoning,4094
-bell peppers,3993
-lettuce,3983
-eggs,3931
-onions,3910
+bell pepper,4538
+seasoning,4307
+lettuce,3982
 fish,3359
 cheese,3247
 water,3176
 potatoes,2863
+cucumber,2854
 cilantro,2849
-sesame seeds,2726
-butter,2649
+sesame seeds,2725
+butter,2648
 cream,2543
 tofu,2400
 tomato,2311
+green pepper,2252
 tomatoes,2243
 corn,2168
 salt,2164
 bread,2113
 cabbage,2074
-milk,2062
-green peppers,2006
+milk,2061
+mushroom,1874
 chili,1856
-mushrooms,1854
 broccoli,1832
-cucumber,1829
 herbs,1770
 fried chicken,1721
-green beans,1709
+green bean,1701
 ginger,1490
-peanuts,1481
+peanut,1478
+apple,1452
 seaweed,1414
 strawberries,1357
 watermelon,1345
 tomato sauce,1328
 ground meat,1317
 yeast,1288
-onion,1267
 spicy sauce,1267
-chili peppers,1244
-dumplings,1180
-apple,1109
+chili pepper,1252
+dumpling,1209
+sausage,1086
 crawfish,1085
 spinach,1056
-cucumbers,1032
-lemon,1019
+red pepper,1046
+lemon,1034
+crab,1021
 pasta,1013
 bok choy,1006
 pizza dough,958
 fries,937
 salmon,892
-crab,879
 mango,870
-red peppers,842
-chicken wings,808
+chicken wing,806
 blueberries,804
 red chili,803
-mixed vegetables,779
-grapes,758
+mixed vegetables,778
+grape,762
 dough,757
 bean sprouts,754
-sausage,741
 steak,734
-chocolate,724
+chocolate,723
+orange,688
 pork belly,686
-lychee,670
-lime,668
+dumpling wrapper,683
+lime,679
+lychee,675
 ham,668
+banana,662
+flavoring,649
 olive oil,645
-nuts,632
-flavoring,632
+meatball,635
+nut,633
 pastry,617
-meatballs,605
+bun,606
 beef patty,595
 cake,573
 pineapple,572
 zucchini,570
 seafood,565
-green vegetables,561
+green vegetable,562
+clam,562
 soup,559
+fruit,558
 greens,556
-clams,553
 cherry tomatoes,551
-bell pepper,550
+green bell pepper,548
 avocado,541
-dumpling wrappers,540
-orange,538
-green onion,534
-bun,529
 meat filling,522
 mayonnaise,517
 coffee,511
 peas,506
-banana,497
 ketchup,491
-oysters,487
+eggplant,477
 peach,475
-eggplant,475
-green bell pepper,447
+oyster,454
 ice cream,446
 parsley,439
 breading,437
 yogurt,437
-carrot,431
 potato,430
+dipping sauce,428
 squid,428
 basil,423
 beans,421
-sauces,417
-dipping sauce,408
+pepper,407
 chicken feet,406
 duck,405
 salad,398
 leafy greens,395
 cauliflower,394
 durian,394
-lobster,392
-fruit,390
+lobster,393
 pork ribs,390
 cherries,380
 spaghetti,377
 pepperoni,375
-syrup,374
+syrup,375
 grilled meat,369
 tuna,366
 batter,361
@@ -150,12 +144,9 @@ dressing,356
 white rice,354
 bacon,354
 mint,348
-sausages,347
 celery,346
-apples,345
-bananas,344
+burger bun,324
 lotus root,324
-burger bun,321
 gelatin,321
 kimchi,317
 wasabi,315
@@ -163,89 +154,84 @@ sushi rice,308
 instant noodles,307
 whipped cream,304
 fried dough,302
+red bell pepper,300
 salad greens,299
+scallion,299
 rice noodles,299
 pumpkin,294
 sweet sauce,294
 coconut milk,292
-scallions,292
-kiwi,286
+kiwi,287
 rosemary,285
-melon,276
+melon,277
 dried chili,272
 sweet potato,271
-red bell pepper,268
+flatbread,270
+pickle,267
 raspberries,267
-flatbread,264
+pancake,266
 coriander,262
-pickles,262
+almond,255
 rice flour,251
 frosting,249
 dragon fruit,248
-almonds,247
-green pepper,247
 cheddar cheese,245
 black fungus,242
 cake base,239
-filling,227
+filling,229
 honey,226
 curry sauce,219
 grilled chicken,218
-pancakes,216
-pickled vegetables,215
-seasonings,213
+pickled vegetable,216
 bread crumbs,213
-peppers,207
 chives,207
 strawberry,207
 cream cheese,206
-red pepper,205
-pepper,200
 vinegar,195
-coconut,194
+coconut,195
+dried fruit,194
 radish,193
-sesame bun,187
+sesame bun,189
+olive,189
+vegetable oil,186
 sweet and sour sauce,185
-vegetable oil,180
+dessert,182
+red bean,181
 edamame,178
-olives,175
-fruits,173
+pear,174
+scallop,174
 tapioca pearls,173
-red beans,173
+plum,171
 snap peas,170
 french fries,169
-dessert,169
 octopus,168
 ice,166
 goji berries,165
 sour cream,165
 arugula,164
 tea,163
-scallops,162
+tortilla,163
+fried onion,160
 sesame oil,158
 mozzarella cheese,158
-oranges,156
-fried onions,156
-pear,153
 vanilla,153
+boiled egg,153
 burger patty,152
 cocoa powder,150
+cookie,150
+wrap,150
 fried rice,149
 fried fish,148
+grain,147
 peaches,146
-bagel,143
-wrap,143
-dumpling wrapper,143
-okra,143
+bagel,145
+okra,145
 jelly,142
-crabs,142
 dill,142
 roasted chicken,140
 wheat flour,140
-grains,139
 preservatives,138
 soda,138
-tortilla,138
 beef steak,138
 snails,137
 barbecue sauce,137
@@ -254,71 +240,71 @@ food coloring,136
 soup base,135
 cashews,135
 dumpling dough,133
-decorations,133
 mussels,133
-dried fruits,133
+decorations,133
 rice paper,129
+green apple,128
 black beans,127
 various meats,127
+fried egg,127
+wafer,125
 berries,123
-wafer,123
 chickpeas,122
 nori,121
 fried tofu,121
-plums,118
-cookies,117
 baking powder,116
 garnish,116
 green chili,116
-fried egg,116
+date,115
+fruit juice,115
 chili sauce,114
-fruit juice,114
+spring roll,113
 sushi,112
-oats,111
-dates,111
-sliced meat,111
+sliced meat,112
+fried item,112
+fat,112
 glaze,110
-wafer cone,108
+oat,110
+wafer cone,109
+cracker,109
+rice cake,108
 lentils,107
-spring rolls,107
+hot dog,107
 pork trotters,106
 breadcrumbs,106
-crackers,106
+croissant,106
 shellfish,106
-fat,106
 chocolate chips,105
+steamed bun,105
 processed meat,105
-croissant,104
+pistachio,103
 dried red chilies,103
 soup broth,102
-green bell peppers,102
+raisin,102
 mustard,102
-raisins,101
 parmesan cheese,101
-boiled eggs,101
 bitter melon,99
-dried chili peppers,99
+dried chili pepper,99
+spring roll wrapper,98
 coloring,98
 fish roe,96
 sprinkles,96
 various vegetables,95
 ground beef,94
-pistachios,94
-rice cakes,94
+skewered meat,94
+egg yolk,93
 daikon,92
 blackberries,91
 black pepper,91
 fried meat,91
 bamboo shoots,90
-skewered meat,90
+walnut,90
 lamb,89
-hot dog,88
 glutinous rice flour,88
 sunflower seeds,87
 green tea,86
-egg yolk,85
-mangosteen,85
-walnuts,83
+mangosteen,86
+chestnut,84
 burger,82
 milk powder,82
 whole grain bread,81
@@ -327,35 +313,34 @@ sesame,81
 pastry dough,81
 green peas,80
 cake layers,80
-chestnuts,80
 quinoa,80
 cheese sauce,80
 short ribs,79
 mashed potatoes,79
 pomegranate,79
+apricot,79
 sweet glaze,79
 toast,79
-buns,78
+snack,78
 black rice,78
 chili oil,77
 red chili peppers,77
-green apple,76
 grilled fish,75
 pizza crust,75
 peanut sauce,75
+fruit topping,74
 waffle cone,74
+sweetener,73
+topping,72
 soft serve ice cream,71
 matcha,71
-toppings,70
-steamed buns,70
-fried items,70
-soybeans,69
+fried snack,70
 glutinous rice,68
 onion rings,68
+pork hock,67
 cream filling,66
 fruit puree,66
 spicy broth,66
-fried snacks,66
 dried chilies,66
 papaya,65
 red bean paste,65
@@ -363,59 +348,57 @@ sweet potatoes,65
 squash,65
 dried red peppers,65
 chocolate sauce,64
+plantain,64
 enoki mushrooms,64
 bamboo leaves,64
 pizza,63
 dried meat,63
 green grapes,63
 meat (optional),62
+fruit filling,62
+drink,62
 fruit flavoring,61
-dried fruit,61
 salsa,61
+fig,61
+quail egg,61
 chocolate cake,61
 feta cheese,61
 protein,61
 sticky rice,60
 cocoa,59
-fruit filling,59
+soft drink,59
 puff pastry,59
-quail eggs,59
+soybean,59
 granola,58
-plantains,58
-sambal,58
 cornmeal,58
+sambal,58
 croutons,58
 fish balls,57
+meat skewer,57
 starch,57
 whole chicken,57
 meat sauce,57
 custard,57
-meat skewers,56
 fried shallots,56
-sweetener,56
 cream sauce,56
 filling (meat/vegetables),56
+waffle,56
 fried potatoes,56
-apricots,55
 chocolate syrup,55
 coconut water,55
 jam,55
-soft drink,54
 grapefruit,54
 dumpling skin,54
-green apples,54
 napa cabbage,54
 grilled eel,54
-plum,53
 carbonated water,53
 lemongrass,53
+fish cake,53
 pumpkin seeds,53
-pancake,53
 seeds,53
-spring roll wrapper,52
 thyme,52
 orange juice,52
-boiled egg,52
+mixed fruit,51
 whole grain flour,51
 sea urchin,51
 kale,51
@@ -424,40 +407,34 @@ jackfruit,50
 caramel,50
 minced meat,50
 cantaloupe,50
+edible flower,50
 corn syrup,50
-fruit toppings,50
-pears,49
 salad dressing,49
 abalone,49
+eel,48
 graham cracker crust,48
-drink,48
 salami,48
 black sesame seeds,48
 chili flakes,48
 liver,48
 passion fruit,47
+beet,47
 whole fish,47
-snacks,47
 lotus seed paste,47
 fried vegetables,47
-eel,46
-mixed fruits,46
 shaved ice,46
-spring roll wrappers,46
+mung bean,46
 ladyfingers,46
 stir-fried vegetables,46
 roast duck,45
-pork hock,45
 cinnamon,45
 chicken skewers,45
-figs,45
-edible flowers,45
 sashimi,45
 braised meat,44
 dried red chili,44
 gravy,44
 mascarpone cheese,44
-beets,43
+red date,43
 espresso,43
 chocolate coating,43
 prosciutto,43
@@ -466,41 +443,39 @@ baby corn,42
 porridge,42
 curry,42
 black olives,42
-mung beans,42
 chicken nuggets,42
-fried item,42
 bay leaves,42
 naan,42
+sesame seed bun,41
 radishes,41
 soba noodles,41
-red dates,40
 dried fish,40
 longan,40
 hoisin sauce,40
 chips,40
 purple cabbage,40
-sesame seed bun,40
 wood ear mushrooms,39
-oyster,39
 crust,39
 cereal,39
 chicken patty,39
 strawberry flavor,39
+leek,38
 oatmeal,38
 filling (meat or vegetables),38
 potato chips,38
 chocolate ice cream,38
+crab stick,38
 cherry,37
 citric acid,37
 chicken breast,37
 beer,37
 shiitake mushrooms,37
-ribeye steak,36
 tart crust,36
+ribeye steak,36
 fufu,36
 raw fish,36
-powdered sugar,36
 buckwheat,36
+powdered sugar,36
 caviar,36
 scrambled eggs,36
 vegetable broth,36
@@ -508,83 +483,81 @@ stabilizers,35
 roast meat,35
 tortilla chips,35
 green sauce,35
-dumpling,35
-steamed bun,35
 fried garlic,34
 glass noodles,34
-waffle,34
+red onion,34
 vanilla ice cream,34
 popcorn,34
 whole milk,34
-red bell peppers,33
+cured meat,34
 fried batter,33
 black sesame,33
-cookie,33
 red cabbage,33
+century egg,33
 turmeric,33
-fish cake,33
 fried bread,33
 brown rice,33
 coleslaw,32
-leeks,32
 cooking oil,32
 pesto,32
 beetroot,32
 marinade,32
-snack,31
+jalapeño,31
 shredded chicken,31
 pastry crust,31
 pine nuts,31
-meatball,31
+taco shell,30
 omelette,30
+guava,30
 glaze sauce,30
 green tea powder,30
-crab sticks,30
 blueberry,29
 potato fries,29
-guava,29
 glucose syrup,29
 sweet syrup,29
 soy milk,29
 meat or tofu,29
-cured meat,29
-mushroom,28
 cone,28
-whole wheat flour,28
+egg tart,28
 beef skewers,28
+whole wheat flour,28
 meat patty,28
-ramen noodles,28
 grilled vegetables,28
+ramen noodles,28
+crispy topping,28
 tea leaves,28
 candy,28
 matcha powder,28
 couscous,28
+fried topping,28
 almond flour,27
+egg white,27
 legumes,27
 wagyu beef,27
 patty,27
 insects,27
+preserved egg,27
 shredded meat,27
+loquat,27
 roasted duck,27
-egg whites,26
 mixed nuts,26
+hazelnut,26
 smoked salmon,26
 beef flavoring,26
 roasted meat,26
 white bread,26
 corn flour,26
+yellow bell pepper,26
 tapioca,26
 guacamole,26
 grilled pork,26
 fruit syrup,26
 roti,25
 skewers,25
-hazelnuts,25
 decorative icing,25
-tortillas,25
-red onion,25
+green fruit,25
 bbq sauce,25
-century eggs,25
-loquats,25
-apricot,25
+marshmallow,25
 spicy seasoning,25
+rose petal,24
+oreo cookie,11
